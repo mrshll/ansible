@@ -29,6 +29,8 @@ Planning and de-risking. Spike A is complete; product code has not started.
 - [Spike B — transcript capture round trip](docs/spikes/capture-round-trip.md) —
   **partial.** The capture path is built and byte-exactness is a golden test;
   the deployed Worker, R2, and Maincloud measurements are still outstanding.
+- [Spike B — hook coverage](docs/spikes/hook-coverage.md) — **done.** Hooks can
+  drive the grid, except for the one status that matters most.
 - [ADR 0001 — terminal composition model](docs/adr/0001-terminal-composition-model.md)
 
 ### Spike A in one paragraph
@@ -65,6 +67,22 @@ measurements remain blocked on credentials.
 cargo test -p ansible-capture                                   # 63 tests
 cargo run -p ansible-terminal --example vt-record -- out.raw claude
 cargo run -p ansible-capture --example redact-report -- out.raw  # coverage + gaps
+```
+
+### Hook coverage in one paragraph
+
+`crates/ansible-hooks` parses real Claude Code hook payloads and derives the grid
+status from them. Recorded from live sessions, so the types and the state machine
+are grounded in observation: `Starting`, `Working`, `AwaitingInput`, and `Done`
+come out of hooks cleanly. `AwaitingApproval` does not — a denied tool fires
+`PreToolUse` and never `PostToolUse`, which is byte-for-byte indistinguishable
+from a tool that is merely slow (measured at 9.2 s for a legitimate command). So
+that status is taken from a terminal hint instead of guessed from a timer, and the
+API makes that a requirement rather than a convention.
+
+```bash
+cargo test -p ansible-hooks                    # 33 tests, incl. fixture replay
+scripts/capture-hook-payloads.sh               # re-record the fixtures
 ```
 
 ## Intended stack
