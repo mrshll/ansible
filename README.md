@@ -26,6 +26,9 @@ Planning and de-risking. Spike A is complete; product code has not started.
   flow, the two de-risking spikes, and the open questions gating Phase 1.
 - [Spike A — terminal embedding](docs/spikes/terminal-embedding.md) — **done.**
   libghostty runs a real Claude Code session inside a Tauri window on Linux.
+- [Spike B — transcript capture round trip](docs/spikes/capture-round-trip.md) —
+  **partial.** The capture path is built and byte-exactness is a golden test;
+  the deployed Worker, R2, and Maincloud measurements are still outstanding.
 - [ADR 0001 — terminal composition model](docs/adr/0001-terminal-composition-model.md)
 
 ### Spike A in one paragraph
@@ -44,6 +47,24 @@ scripts/build-libghostty-vt.sh                      # build libghostty-vt (~5 mi
 scripts/run-spike-a.sh claude                       # the harness, running Claude Code
 cargo run -p ansible-terminal --example vt-fixture  # no display server needed
 cargo test --workspace
+```
+
+### Spike B in one paragraph
+
+`crates/ansible-capture` turns raw PTY bytes into redacted, ordered chunks as a
+pure function of `(bytes, timestamps, config)` — no I/O, no clock — so the path
+with no acceptable failure mode is golden-testable. Reassembly is byte-exact
+through the stored JSONL form, independent of how the PTY split its writes, and
+refuses a gap rather than splicing over one. Redaction was derived by recording a
+real session: vendor-prefix rules alone caught only 4 of 12 planted credentials,
+so named values, URL credentials, JWTs, and PEM blocks became rules too, taking
+coverage to 12 of 12 at 18 MiB/s. Deployed Worker, R2, and relay-latency
+measurements remain blocked on credentials.
+
+```bash
+cargo test -p ansible-capture                                   # 63 tests
+cargo run -p ansible-terminal --example vt-record -- out.raw claude
+cargo run -p ansible-capture --example redact-report -- out.raw  # coverage + gaps
 ```
 
 ## Intended stack

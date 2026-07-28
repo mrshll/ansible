@@ -36,3 +36,7 @@ path = "examples/vt_fixture.rs"
 [[example]]
 name = "vt-latency"
 path = "examples/vt_latency.rs"
+
+[[example]]
+name = "vt-record"
+path = "examples/vt_record.rs"

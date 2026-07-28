@@ -1,0 +1,25 @@
+[package]
+name = "ansible-capture"
+description = "Transcript capture: raw PTY bytes in, redacted ordered chunks out"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# No terminal crate, no hub, no I/O, no clock. Capture is a pure function so it
+# can be golden-tested and fuzzed.
+[dependencies]
+base64 = "0.22"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror.workspace = true
+
+# Inherits the workspace lints, including `unsafe_code = "forbid"`. This crate
+# has no reason to ever contain unsafe.
+[lints]
+workspace = true
+
+[[example]]
+name = "redact-report"
+path = "examples/redact_report.rs"
