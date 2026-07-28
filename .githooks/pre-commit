@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+#
+# Refuse a commit that would not survive CI: formatting, then clippy at
+# `-D warnings`, via the same scripts/lint.sh that CI runs.
+#
+# Install with: scripts/install-hooks.sh
+# Skip once with: git commit --no-verify
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+# Nothing Rust-shaped in the commit means nothing for these tools to say. Note
+# this checks the *staged* set; the lint below still covers the whole workspace,
+# because rustfmt and clippy are not per-file tools and a change in one crate can
+# only be judged against the tree it lands in.
+if ! git diff --cached --name-only --diff-filter=ACMR |
+  grep -qE '\.rs$|(^|/)Cargo\.(toml|lock)$|(^|/)rustfmt\.toml$|(^|/)rust-toolchain\.toml$'; then
+  exit 0
+fi
+
+if ! "$REPO_ROOT/scripts/lint.sh"; then
+  cat >&2 <<'EOF'
+
+pre-commit: lint failed, commit aborted.
+
+  scripts/lint.sh --fix   fix what is mechanical, then review the diff
+  git commit --no-verify  commit anyway (CI will still run this)
+EOF
+  exit 1
+fi

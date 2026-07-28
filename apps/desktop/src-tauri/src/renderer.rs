@@ -10,10 +10,34 @@ use cairo::Context;
 use pango::FontDescription;
 
 /// Monospace metrics, measured once from the font.
+///
+/// Both fields are finite and at least `1.0` — [`Renderer::metrics`] clamps them
+/// — which is what makes [`pixel_size`](CellMetrics::pixel_size) exact.
 #[derive(Debug, Clone, Copy)]
 pub struct CellMetrics {
     pub width: f64,
     pub height: f64,
+}
+
+impl CellMetrics {
+    /// Cell size as whole pixels, for the PTY winsize the child is told about.
+    pub fn pixel_size(self) -> (u32, u32) {
+        (whole_pixels(self.width), whole_pixels(self.height))
+    }
+}
+
+/// A finite, non-negative pixel measurement as a `u32`.
+///
+/// Font metrics come from Pango as `f64`. Clamping before the conversion is what
+/// makes it exact rather than implementation-defined: without it, a NaN or an
+/// out-of-range value would convert to whatever saturation happens to give.
+fn whole_pixels(v: f64) -> u32 {
+    let clamped = v.clamp(0.0, f64::from(u32::MAX)).trunc();
+    // Integral and inside `0..=u32::MAX` by the clamp above, so this is exact.
+    // (`clamp` propagates NaN, which `as` then maps to 0 — also in range.)
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let pixels = clamped as u32;
+    pixels
 }
 
 pub struct Renderer {
@@ -49,9 +73,7 @@ impl Renderer {
     /// Grid size that fits the given pixel area.
     pub fn grid_for(&mut self, cr: &Context, width: f64, height: f64) -> (u16, u16, CellMetrics) {
         let m = self.metrics(cr);
-        let cols = ((width / m.width).floor() as i64).clamp(1, u16::MAX as i64) as u16;
-        let rows = ((height / m.height).floor() as i64).clamp(1, u16::MAX as i64) as u16;
-        (cols, rows, m)
+        (grid_axis(width, m.width), grid_axis(height, m.height), m)
     }
 
     pub fn draw(&mut self, cr: &Context, snapshot: &Snapshot, width: f64, height: f64) {
@@ -157,7 +179,34 @@ fn set_source(cr: &Context, c: Rgb) {
     cr.set_source_rgb(f64::from(c.r) / 255.0, f64::from(c.g) / 255.0, f64::from(c.b) / 255.0);
 }
 
+/// Cells that fit along one axis, as a valid grid dimension.
+///
+/// A grid dimension is a `u16` and zero is not a legal terminal size, so the
+/// result is clamped into `1..=u16::MAX` while still in `f64`. Doing it there
+/// rather than after the conversion is what gives NaN and infinity a defined
+/// answer instead of a saturated one.
+fn grid_axis(pixels: f64, cell: f64) -> u16 {
+    let fitted = (pixels / cell).floor();
+    if !fitted.is_finite() || fitted < 1.0 {
+        return 1;
+    }
+    if fitted >= f64::from(u16::MAX) {
+        return u16::MAX;
+    }
+    // Integral and inside `1..u16::MAX` by the two guards above, so this is exact.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let cells = fitted as u16;
+    cells
+}
+
 fn blend(a: Rgb, b: Rgb, t: f64) -> Rgb {
-    let mix = |x: u8, y: u8| (f64::from(x) * (1.0 - t) + f64::from(y) * t) as u8;
+    let mix = |x: u8, y: u8| {
+        let v = f64::from(x) * (1.0 - t) + f64::from(y) * t;
+        // Both endpoints are `u8` and `t` is a ratio, so this already lands in
+        // `0.0..=255.0`; the clamp keeps that true for an out-of-range `t` too.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let byte = v.clamp(0.0, 255.0) as u8;
+        byte
+    };
     Rgb::new(mix(a.r, b.r), mix(a.g, b.g), mix(a.b, b.b))
 }

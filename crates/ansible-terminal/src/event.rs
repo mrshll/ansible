@@ -15,26 +15,35 @@ pub struct TerminalSize {
 }
 
 impl TerminalSize {
+    #[must_use]
     pub fn new(cols: u16, rows: u16, cell_width_px: u32, cell_height_px: u32) -> Self {
         Self { cols, rows, cell_width_px, cell_height_px }
     }
 
     /// Grid dimensions are 1-based in the VT model; zero would be rejected by
     /// `ghostty_terminal_resize` and makes no sense for a PTY winsize either.
+    #[must_use]
     pub fn is_valid(&self) -> bool {
         self.cols > 0 && self.rows > 0
     }
 
+    #[must_use]
     pub fn pixel_width(&self) -> u32 {
         u32::from(self.cols) * self.cell_width_px
     }
 
+    #[must_use]
     pub fn pixel_height(&self) -> u32 {
         u32::from(self.rows) * self.cell_height_px
     }
 }
 
 /// Keyboard modifiers, mirroring `GhosttyMods`.
+//
+// `clippy::struct_excessive_bools` wants a bitflags type. These four mirror the
+// `GHOSTTY_MODS_*` bits one for one and are set and tested by name at every call
+// site; `mods_bits` is the single place that packs them into a mask.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Modifiers {
     pub shift: bool,
@@ -46,10 +55,12 @@ pub struct Modifiers {
 impl Modifiers {
     pub const NONE: Self = Self { shift: false, ctrl: false, alt: false, super_: false };
 
+    #[must_use]
     pub fn ctrl() -> Self {
         Self { ctrl: true, ..Self::NONE }
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         *self == Self::NONE
     }
@@ -69,10 +80,12 @@ pub struct KeyEvent {
 }
 
 impl KeyEvent {
+    #[must_use]
     pub fn press(key: Key, mods: Modifiers) -> Self {
         Self { key, mods, action: KeyAction::Press, text: None }
     }
 
+    #[must_use]
     pub fn with_text(mut self, text: impl Into<String>) -> Self {
         self.text = Some(text.into());
         self

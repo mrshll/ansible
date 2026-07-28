@@ -26,9 +26,17 @@ pub type TerminalEvents = crossbeam_channel::Receiver<TerminalEvent>;
 /// no Tauri, which is what keeps the composition model swappable.
 pub trait TerminalBackend: Send {
     /// Deliver input to the child process.
+    ///
+    /// # Errors
+    /// [`crate::Error::Exited`] if the child is already gone, or a
+    /// [`crate::Error::Pty`]/[`crate::Error::Io`] if the write fails.
     fn send(&mut self, input: TerminalInput) -> Result<()>;
 
     /// Resize the grid and raise SIGWINCH on the child.
+    ///
+    /// # Errors
+    /// [`crate::Error::InvalidSize`] if `size` has a zero dimension, or an
+    /// implementation error if the terminal state or the PTY rejects the resize.
     fn resize(&mut self, size: TerminalSize) -> Result<()>;
 
     /// Current grid geometry.
@@ -38,11 +46,18 @@ pub trait TerminalBackend: Send {
     fn events(&self) -> TerminalEvents;
 
     /// Copy the visible screen into a renderable snapshot.
+    ///
+    /// # Errors
+    /// An implementation error if the terminal state cannot be read.
     fn snapshot(&mut self) -> Result<Snapshot>;
 
     /// Whether the child has exited.
     fn has_exited(&self) -> bool;
 
     /// Terminate the child and release resources. Idempotent.
+    ///
+    /// # Errors
+    /// An implementation error if resources cannot be released. Killing the
+    /// child itself is infallible: a child that is already gone is success.
     fn shutdown(&mut self) -> Result<()>;
 }

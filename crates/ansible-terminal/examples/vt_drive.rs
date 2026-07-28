@@ -36,7 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let script = std::fs::read_to_string(&script_path)?;
 
     let mut term = GhosttyTerminal::spawn(
-        TerminalConfig::command(&command, TerminalSize::new(120, 40, 8, 16))
+        &TerminalConfig::command(&command, TerminalSize::new(120, 40, 8, 16))
             .args(command_args)
             .env("LC_ALL", "C.UTF-8"),
     )?;

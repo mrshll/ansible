@@ -23,6 +23,7 @@ pub struct TerminalConfig {
 
 impl TerminalConfig {
     /// A login shell, honoring `$SHELL`.
+    #[must_use]
     pub fn shell(size: TerminalSize) -> Self {
         let command = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
         Self::command(command, size)
@@ -46,11 +47,13 @@ impl TerminalConfig {
         }
     }
 
+    #[must_use]
     pub fn arg(mut self, arg: impl Into<String>) -> Self {
         self.args.push(arg.into());
         self
     }
 
+    #[must_use]
     pub fn args<I, S>(mut self, args: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -60,11 +63,13 @@ impl TerminalConfig {
         self
     }
 
+    #[must_use]
     pub fn cwd(mut self, cwd: impl Into<PathBuf>) -> Self {
         self.cwd = Some(cwd.into());
         self
     }
 
+    #[must_use]
     pub fn env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.env.insert(key.into(), value.into());
         self

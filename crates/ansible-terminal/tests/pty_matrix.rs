@@ -23,7 +23,7 @@ fn shell(cols: u16, rows: u16) -> GhosttyTerminal {
     let config = TerminalConfig::command("/bin/sh", size(cols, rows))
         .env("PS1", "")
         .env("LC_ALL", "C.UTF-8");
-    GhosttyTerminal::spawn(config).expect("spawn shell")
+    GhosttyTerminal::spawn(&config).expect("spawn shell")
 }
 
 /// Run one command and wait for the screen to satisfy `matches`.
@@ -211,7 +211,7 @@ while True:
 #[test]
 fn resize_updates_the_grid_and_raises_sigwinch() {
     let config = TerminalConfig::command("python3", size(80, 24)).args(["-c", WINCH_PROBE]);
-    let mut term = GhosttyTerminal::spawn(config).expect("spawn probe");
+    let mut term = GhosttyTerminal::spawn(&config).expect("spawn probe");
 
     let ready =
         term.wait_for_screen(TIMEOUT, |s| s.screen_text().contains("CHILD-READY")).expect("pump");

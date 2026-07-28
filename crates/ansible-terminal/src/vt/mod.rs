@@ -23,11 +23,14 @@ pub(crate) fn check(call: &'static str, result: sys::GhosttyResult) -> Result<()
 /// the C headers fill via `GHOSTTY_INIT_SIZED`. Rust has no such macro, so
 /// zero the struct and stamp the size before every read.
 pub(crate) fn sized<T>() -> T {
+    // SAFETY: only called with the `#[repr(C)]` POD structs bindgen generates
+    // for this API. All-zeroes is a valid bit pattern for every field (integers,
+    // bools, and nullable pointers), and the `size` field is overwritten below.
     let mut value: T = unsafe { std::mem::zeroed() };
     // SAFETY: every sized struct in this API starts with `size: usize`, which
     // is what the header's GHOSTTY_INIT_SIZED macro writes.
     unsafe {
-        let ptr = std::ptr::addr_of_mut!(value) as *mut usize;
+        let ptr = std::ptr::addr_of_mut!(value).cast::<usize>();
         ptr.write(std::mem::size_of::<T>());
     }
     value

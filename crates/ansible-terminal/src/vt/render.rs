@@ -23,28 +23,44 @@ pub struct RenderState {
 // takes `&mut self`.
 unsafe impl Send for RenderState {}
 
+// `clippy::similar_names` fires on the `default_fg`/`default_bg` parameter pairs
+// below. Foreground/background is the domain's own naming and the abbreviations
+// are used throughout this crate; renaming them to satisfy the lint would make
+// the code harder to read, not easier.
+#[allow(clippy::similar_names)]
 impl RenderState {
+    /// Allocate the render state and the two reusable iterators.
+    ///
+    /// # Errors
+    /// [`crate::Error::Vt`] if libghostty fails to allocate any of the three
+    /// handles.
     pub fn new() -> Result<Self> {
         let mut raw: sys::GhosttyRenderState = std::ptr::null_mut();
         // SAFETY: valid out-pointer; null allocator selects the default.
         check("ghostty_render_state_new", unsafe {
-            sys::ghostty_render_state_new(std::ptr::null(), &mut raw)
+            sys::ghostty_render_state_new(std::ptr::null(), &raw mut raw)
         })?;
 
         let mut rows: sys::GhosttyRenderStateRowIterator = std::ptr::null_mut();
+        // SAFETY: valid out-pointer; null allocator selects the default.
         check("ghostty_render_state_row_iterator_new", unsafe {
-            sys::ghostty_render_state_row_iterator_new(std::ptr::null(), &mut rows)
+            sys::ghostty_render_state_row_iterator_new(std::ptr::null(), &raw mut rows)
         })?;
 
         let mut cells: sys::GhosttyRenderStateRowCells = std::ptr::null_mut();
+        // SAFETY: valid out-pointer; null allocator selects the default.
         check("ghostty_render_state_row_cells_new", unsafe {
-            sys::ghostty_render_state_row_cells_new(std::ptr::null(), &mut cells)
+            sys::ghostty_render_state_row_cells_new(std::ptr::null(), &raw mut cells)
         })?;
 
         Ok(Self { raw, rows, cells })
     }
 
     /// Refresh from the terminal and copy the viewport into a [`Snapshot`].
+    ///
+    /// # Errors
+    /// [`crate::Error::Vt`] if libghostty fails to refresh the render state or
+    /// to report the viewport dimensions, colors, or cursor.
     pub fn snapshot(&mut self, terminal: &mut Terminal) -> Result<Snapshot> {
         // SAFETY: both handles are valid.
         check("ghostty_render_state_update", unsafe {
@@ -52,8 +68,10 @@ impl RenderState {
         })?;
 
         let mut colors: sys::GhosttyRenderStateColors = sized();
+        // SAFETY: `colors` was size-stamped by `sized()` and is a valid
+        // out-pointer.
         check("ghostty_render_state_colors_get", unsafe {
-            sys::ghostty_render_state_colors_get(self.raw, &mut colors)
+            sys::ghostty_render_state_colors_get(self.raw, &raw mut colors)
         })?;
         let foreground = rgb(colors.foreground);
         let background = rgb(colors.background);
@@ -65,22 +83,26 @@ impl RenderState {
         builder.set_cursor(self.cursor(&colors)?);
 
         // Point the row iterator at the current frame.
+        // SAFETY: `self.rows` is a valid out-pointer for the iterator handle
+        // that `DATA_ROW_ITERATOR` writes.
         check("ghostty_render_state_get(ROW_ITERATOR)", unsafe {
             sys::ghostty_render_state_get(
                 self.raw,
                 sys::GHOSTTY_RENDER_STATE_DATA_ROW_ITERATOR,
-                &mut self.rows as *mut _ as *mut c_void,
+                (&raw mut self.rows).cast::<c_void>(),
             )
         })?;
 
         let mut utf8 = [0u8; 64];
         // SAFETY: the iterator is positioned by the call above.
         while unsafe { sys::ghostty_render_state_row_iterator_next(self.rows) } {
+            // SAFETY: the iterator is positioned on a row by the loop condition,
+            // and `self.cells` is a valid out-pointer for the cells handle.
             check("ghostty_render_state_row_get(CELLS)", unsafe {
                 sys::ghostty_render_state_row_get(
                     self.rows,
                     sys::GHOSTTY_RENDER_STATE_ROW_DATA_CELLS,
-                    &mut self.cells as *mut _ as *mut c_void,
+                    (&raw mut self.cells).cast::<c_void>(),
                 )
             })?;
 
@@ -140,7 +162,7 @@ impl RenderState {
             sys::ghostty_render_state_row_cells_get(
                 self.cells,
                 sys::GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_UTF8,
-                &mut buf as *mut _ as *mut c_void,
+                (&raw mut buf).cast::<c_void>(),
             )
         };
         if result != sys::GHOSTTY_SUCCESS || buf.len == 0 || buf.len > utf8.len() {
@@ -150,13 +172,16 @@ impl RenderState {
     }
 
     fn cell_width(&mut self) -> CellWidth {
+        // SAFETY: `GhosttyCell` is an opaque handle (a raw pointer), for which
+        // all-zeroes is null. It is only read after the call below reports
+        // success, so a null handle is never passed on.
         let mut cell: sys::GhosttyCell = unsafe { std::mem::zeroed() };
         // SAFETY: valid out-pointer for the raw cell.
         let got = unsafe {
             sys::ghostty_render_state_row_cells_get(
                 self.cells,
                 sys::GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_RAW,
-                &mut cell as *mut _ as *mut c_void,
+                (&raw mut cell).cast::<c_void>(),
             )
         };
         if got != sys::GHOSTTY_SUCCESS {
@@ -169,7 +194,7 @@ impl RenderState {
             sys::ghostty_cell_get(
                 cell,
                 sys::GHOSTTY_CELL_DATA_WIDE,
-                &mut wide as *mut _ as *mut c_void,
+                (&raw mut wide).cast::<c_void>(),
             )
         };
         if got != sys::GHOSTTY_SUCCESS {
@@ -197,7 +222,7 @@ impl RenderState {
             sys::ghostty_render_state_row_cells_get(
                 self.cells,
                 sys::GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_HAS_STYLING,
-                &mut has_styling as *mut _ as *mut c_void,
+                (&raw mut has_styling).cast::<c_void>(),
             );
         }
 
@@ -209,14 +234,20 @@ impl RenderState {
                 sys::ghostty_render_state_row_cells_get(
                     self.cells,
                     sys::GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_STYLE,
-                    &mut raw as *mut _ as *mut c_void,
+                    (&raw mut raw).cast::<c_void>(),
                 )
             };
             if got == sys::GHOSTTY_SUCCESS {
+                // `GhosttyStyle::underline` is declared `int` while the
+                // `GHOSTTY_SGR_UNDERLINE_*` constants are `unsigned int`, so
+                // there is no cast between the two that is correct for every
+                // value. Since "none" is zero, test for it directly and pin
+                // that assumption to a compile-time check.
+                const _: () = assert!(sys::GHOSTTY_SGR_UNDERLINE_NONE.0 == 0);
                 style = CellStyle {
                     bold: raw.bold,
                     italic: raw.italic,
-                    underline: raw.underline != sys::GHOSTTY_SGR_UNDERLINE_NONE.0 as _,
+                    underline: raw.underline != 0,
                     strikethrough: raw.strikethrough,
                     inverse: raw.inverse,
                     faint: raw.faint,
@@ -242,7 +273,7 @@ impl RenderState {
             sys::ghostty_render_state_row_cells_get(
                 self.cells,
                 kind,
-                &mut color as *mut _ as *mut c_void,
+                (&raw mut color).cast::<c_void>(),
             )
         };
         (got == sys::GHOSTTY_SUCCESS).then(|| rgb(color))
@@ -259,11 +290,13 @@ impl RenderState {
         let col: u16 = self.get(sys::GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_X)?;
         let row: u16 = self.get(sys::GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_Y)?;
         let mut style = sys::GHOSTTY_RENDER_STATE_CURSOR_VISUAL_STYLE_BLOCK;
+        // SAFETY: `style` is a valid out-pointer for the enum that
+        // `DATA_CURSOR_VISUAL_STYLE` writes.
         check("ghostty_render_state_get(CURSOR_VISUAL_STYLE)", unsafe {
             sys::ghostty_render_state_get(
                 self.raw,
                 sys::GHOSTTY_RENDER_STATE_DATA_CURSOR_VISUAL_STYLE,
-                &mut style as *mut _ as *mut c_void,
+                (&raw mut style).cast::<c_void>(),
             )
         })?;
 
@@ -284,8 +317,11 @@ impl RenderState {
     /// `T` must match the output type documented for `kind` in render.h.
     fn get<T: Default>(&mut self, kind: sys::GhosttyRenderStateData) -> Result<T> {
         let mut out = T::default();
+        // SAFETY: `out` is a valid out-pointer, and every caller in this module
+        // instantiates `T` as the type render.h documents for `kind` — the
+        // contract stated above.
         check("ghostty_render_state_get", unsafe {
-            sys::ghostty_render_state_get(self.raw, kind, &mut out as *mut T as *mut c_void)
+            sys::ghostty_render_state_get(self.raw, kind, (&raw mut out).cast::<c_void>())
         })?;
         Ok(out)
     }
@@ -314,12 +350,12 @@ mod tests {
     use std::sync::mpsc::channel;
 
     fn terminal(cols: u16, rows: u16) -> Terminal {
-        let (write_pty, _a) = channel();
-        let (title, _b) = channel();
-        let (bell, _c) = channel();
+        let (write_pty, write_rx) = channel();
+        let (title, title_rx) = channel();
+        let (bell, bell_rx) = channel();
         // Leak the receivers: these tests only care about screen contents, and
         // a dropped receiver would make the senders fail silently anyway.
-        std::mem::forget((_a, _b, _c));
+        std::mem::forget((write_rx, title_rx, bell_rx));
         Terminal::new(
             TerminalSize::new(cols, rows, 8, 16),
             1000,

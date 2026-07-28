@@ -1,8 +1,8 @@
 //! A terminal backed by libghostty-vt.
 //!
 //! Ghostty ships two very different C libraries. The one in `include/ghostty.h`
-//! is the GUI embedding API, and its surface config accepts only an AppKit
-//! `NSView` or a UIKit `UIView` — there is no Linux variant, so it cannot host a
+//! is the GUI embedding API, and its surface config accepts only an `AppKit`
+//! `NSView` or a `UIKit` `UIView` — there is no Linux variant, so it cannot host a
 //! terminal inside a GTK application. The one this crate binds,
 //! `include/ghostty/vt.h` (libghostty-vt), is cross-platform and provides VT
 //! parsing, terminal state, incremental render state, and input encoders.

@@ -4,8 +4,10 @@
 //! and the tool used to derive the redaction ruleset from real output rather
 //! than from guesswork.
 //!
-//!   cargo run -p ansible-terminal --example vt-record -- out.raw /bin/sh script.sh
-//!   ANSIBLE_RECORD_SECONDS=20 cargo run -p ansible-terminal --example vt-record -- out.raw claude
+//! ```text
+//! cargo run -p ansible-terminal --example vt-record -- out.raw /bin/sh script.sh
+//! ANSIBLE_RECORD_SECONDS=20 cargo run -p ansible-terminal --example vt-record -- out.raw claude
+//! ```
 //!
 //! The bytes written are exactly what came off the PTY: unredacted, unparsed,
 //! in arrival order. Treat the output file as sensitive.
@@ -27,7 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::env::var("ANSIBLE_RECORD_SECONDS").ok().and_then(|v| v.parse().ok()).unwrap_or(15);
 
     let mut terminal = GhosttyTerminal::spawn(
-        TerminalConfig::command(&command, TerminalSize::new(120, 40, 8, 16))
+        &TerminalConfig::command(&command, TerminalSize::new(120, 40, 8, 16))
             .args(command_args)
             .env("LC_ALL", "C.UTF-8"),
     )?;

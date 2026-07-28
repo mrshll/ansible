@@ -15,11 +15,19 @@ impl Rgb {
     pub const BLACK: Self = Self { r: 0, g: 0, b: 0 };
     pub const WHITE: Self = Self { r: 0xff, g: 0xff, b: 0xff };
 
+    #[must_use]
     pub fn new(r: u8, g: u8, b: u8) -> Self {
         Self { r, g, b }
     }
 }
 
+/// The SGR text attributes a cell can carry.
+//
+// `clippy::struct_excessive_bools` wants a bitflags type here. These six are not
+// a state machine to be encoded — they are exactly the independent SGR
+// attributes libghostty reports, and renderers read them by name. A bitfield
+// would trade that legibility for nothing.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct CellStyle {
     pub bold: bool,
@@ -52,6 +60,7 @@ pub struct Cell {
 }
 
 impl Cell {
+    #[must_use]
     pub fn is_blank(&self) -> bool {
         self.text_len == 0
     }
@@ -86,11 +95,13 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
+    #[must_use]
     pub fn cells(&self) -> &[Cell] {
         &self.cells
     }
 
     /// Cell at `(col, row)`, or `None` if out of bounds.
+    #[must_use]
     pub fn cell(&self, col: u16, row: u16) -> Option<&Cell> {
         if col >= self.cols || row >= self.rows {
             return None;
@@ -99,6 +110,7 @@ impl Snapshot {
     }
 
     /// Grapheme text for a cell. Empty for blank cells and wide-cell spacers.
+    #[must_use]
     pub fn cell_text(&self, cell: &Cell) -> &str {
         let start = cell.text_start as usize;
         let end = start + cell.text_len as usize;
@@ -109,6 +121,7 @@ impl Snapshot {
     ///
     /// This is the assertion surface for tests and the deterministic fixture:
     /// it is how we check that libghostty parsed a sequence the way we expect.
+    #[must_use]
     pub fn row_text(&self, row: u16) -> String {
         let mut out = String::new();
         for col in 0..self.cols {
@@ -126,9 +139,10 @@ impl Snapshot {
     }
 
     /// Whole screen as text, trailing blank lines trimmed.
+    #[must_use]
     pub fn screen_text(&self) -> String {
         let mut lines: Vec<String> = (0..self.rows).map(|r| self.row_text(r)).collect();
-        while lines.last().is_some_and(|l| l.is_empty()) {
+        while lines.last().is_some_and(std::string::String::is_empty) {
             lines.pop();
         }
         lines.join("\n")
@@ -147,6 +161,7 @@ pub struct SnapshotBuilder {
 }
 
 impl SnapshotBuilder {
+    #[must_use]
     pub fn new(cols: u16, rows: u16, foreground: Rgb, background: Rgb) -> Self {
         let capacity = usize::from(cols) * usize::from(rows);
         Self {
@@ -164,25 +179,38 @@ impl SnapshotBuilder {
         self.cursor = cursor;
     }
 
-    pub fn push_cell(&mut self, text: &str, fg: Rgb, bg: Rgb, style: CellStyle, width: CellWidth) {
-        let text_start = self.text.len() as u32;
-        self.text.push_str(text);
-        self.cells.push(Cell {
-            text_start,
-            text_len: (self.text.len() as u32) - text_start,
-            fg,
-            bg,
-            style,
-            width,
-        });
+    /// Offsets for text appended at the current end of the buffer.
+    ///
+    /// `None` when the range would not fit the `u32` offsets a [`Cell`] stores.
+    /// Reaching that needs a grid far larger than memory allows, but a truncated
+    /// offset would slice the wrong bytes instead of failing, so the caller
+    /// stores a blank cell rather than a wrong one.
+    fn offsets_for(&self, text: &str) -> Option<(u32, u32)> {
+        let start = u32::try_from(self.text.len()).ok()?;
+        let len = u32::try_from(text.len()).ok()?;
+        start.checked_add(len)?;
+        Some((start, len))
     }
 
+    pub fn push_cell(&mut self, text: &str, fg: Rgb, bg: Rgb, style: CellStyle, width: CellWidth) {
+        let (text_start, text_len) = match self.offsets_for(text) {
+            Some(offsets) => {
+                self.text.push_str(text);
+                offsets
+            }
+            None => (0, 0),
+        };
+        self.cells.push(Cell { text_start, text_len, fg, bg, style, width });
+    }
+
+    #[must_use]
     pub fn cell_count(&self) -> usize {
         self.cells.len()
     }
 
     /// Pad to a full `cols * rows` grid so renderers can index without bounds
     /// juggling when libghostty yields a short final row.
+    #[must_use]
     pub fn build(mut self) -> Snapshot {
         let expected = usize::from(self.cols) * usize::from(self.rows);
         while self.cells.len() < expected {
@@ -212,7 +240,8 @@ mod tests {
     use super::*;
 
     fn build_row(texts: &[&str]) -> Snapshot {
-        let mut b = SnapshotBuilder::new(texts.len() as u16, 1, Rgb::WHITE, Rgb::BLACK);
+        let cols = u16::try_from(texts.len()).expect("fixture row fits a u16 grid");
+        let mut b = SnapshotBuilder::new(cols, 1, Rgb::WHITE, Rgb::BLACK);
         for t in texts {
             b.push_cell(t, Rgb::WHITE, Rgb::BLACK, CellStyle::default(), CellWidth::Narrow);
         }

@@ -20,16 +20,21 @@ pub struct KeyEncoder {
 unsafe impl Send for KeyEncoder {}
 
 impl KeyEncoder {
+    /// Allocate the encoder and the reusable key event it encodes through.
+    ///
+    /// # Errors
+    /// [`crate::Error::Vt`] if libghostty fails to allocate either handle.
     pub fn new() -> Result<Self> {
         let mut raw: sys::GhosttyKeyEncoder = std::ptr::null_mut();
         // SAFETY: valid out-pointer; null allocator selects the default.
         check("ghostty_key_encoder_new", unsafe {
-            sys::ghostty_key_encoder_new(std::ptr::null(), &mut raw)
+            sys::ghostty_key_encoder_new(std::ptr::null(), &raw mut raw)
         })?;
 
         let mut event: sys::GhosttyKeyEvent = std::ptr::null_mut();
+        // SAFETY: valid out-pointer; null allocator selects the default.
         check("ghostty_key_event_new", unsafe {
-            sys::ghostty_key_event_new(std::ptr::null(), &mut event)
+            sys::ghostty_key_event_new(std::ptr::null(), &raw mut event)
         })?;
 
         Ok(Self { raw, event })
@@ -40,6 +45,10 @@ impl KeyEncoder {
     /// Returns an empty vector for keys the terminal maps to nothing, which is
     /// normal (e.g. a bare modifier, or a release when the app has not asked
     /// for release events).
+    ///
+    /// # Errors
+    /// [`crate::Error::Vt`] if libghostty rejects the encode, which for a
+    /// well-formed event means the output did not fit the internal buffer.
     pub fn encode(&mut self, terminal: &mut Terminal, key: &KeyEvent) -> Result<Vec<u8>> {
         // SAFETY: both handles are valid; this only copies mode flags.
         unsafe { sys::ghostty_key_encoder_setopt_from_terminal(self.raw, terminal.raw()) };
@@ -64,14 +73,13 @@ impl KeyEncoder {
                 sys::ghostty_key_event_set_unshifted_codepoint(self.event, 0);
             }
 
-            match key.text.as_deref() {
-                Some(text) if !text.is_empty() => sys::ghostty_key_event_set_utf8(
-                    self.event,
-                    text.as_ptr() as *const _,
-                    text.len(),
-                ),
-                _ => sys::ghostty_key_event_set_utf8(self.event, std::ptr::null(), 0),
-            }
+            // Pick the buffer first so there is one call: an empty `text` and an
+            // absent one are the same thing to the encoder, a null pointer.
+            let (text, len) = match key.text.as_deref() {
+                Some(text) if !text.is_empty() => (text.as_ptr().cast(), text.len()),
+                _ => (std::ptr::null(), 0),
+            };
+            sys::ghostty_key_event_set_utf8(self.event, text, len);
         }
 
         let mut buf = [0u8; 128];
@@ -81,9 +89,9 @@ impl KeyEncoder {
             sys::ghostty_key_encoder_encode(
                 self.raw,
                 self.event,
-                buf.as_mut_ptr() as *mut _,
+                buf.as_mut_ptr().cast(),
                 buf.len(),
-                &mut len,
+                &raw mut len,
             )
         })?;
 
@@ -101,6 +109,18 @@ impl Drop for KeyEncoder {
     }
 }
 
+/// bindgen types the `GHOSTTY_MODS_*` constants as `u32`, but the mask they go
+/// into is a `u16`. Every bit upstream defines sits in the low half, so this
+/// holds today — and the check fails the build rather than silently dropping a
+/// modifier if that ever stops being true.
+const _: () = {
+    let all = sys::GHOSTTY_MODS_SHIFT
+        | sys::GHOSTTY_MODS_CTRL
+        | sys::GHOSTTY_MODS_ALT
+        | sys::GHOSTTY_MODS_SUPER;
+    assert!(all <= 0xffff, "modifier bits must fit GhosttyMods");
+};
+
 fn mods_bits(mods: Modifiers) -> sys::GhosttyMods {
     let mut bits = 0u32;
     if mods.shift {
@@ -115,7 +135,9 @@ fn mods_bits(mods: Modifiers) -> sys::GhosttyMods {
     if mods.super_ {
         bits |= sys::GHOSTTY_MODS_SUPER;
     }
-    bits as sys::GhosttyMods
+    // Infallible by the compile-time check above; panicking beats truncating,
+    // because a dropped modifier bit is a wrong keystroke, not a lost one.
+    sys::GhosttyMods::try_from(bits).expect("modifier bits fit GhosttyMods")
 }
 
 /// Map a logical key onto a `GHOSTTY_KEY_*` constant.
@@ -221,6 +243,7 @@ fn char_key(c: char) -> sys::GhosttyKey {
 /// Callers must only do this when the application enabled mode 2004; sending
 /// the markers to an application that did not ask for them makes them appear
 /// as literal `[200~` text.
+#[must_use]
 pub fn bracket_paste(text: &str) -> Vec<u8> {
     let mut out = Vec::with_capacity(text.len() + 12);
     out.extend_from_slice(b"\x1b[200~");
@@ -240,7 +263,7 @@ pub fn encode_focus(terminal: &mut Terminal, focused: bool) -> Option<Vec<u8>> {
     let mut len: usize = 0;
     // SAFETY: `buf` is a valid writable region of `buf.len()` bytes.
     let result = unsafe {
-        sys::ghostty_focus_encode(event, buf.as_mut_ptr() as *mut _, buf.len(), &mut len)
+        sys::ghostty_focus_encode(event, buf.as_mut_ptr().cast(), buf.len(), &raw mut len)
     };
     (result == sys::GHOSTTY_SUCCESS && len > 0 && len <= buf.len()).then(|| buf[..len].to_vec())
 }

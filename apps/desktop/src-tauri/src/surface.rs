@@ -61,7 +61,7 @@ pub fn attach(
         config = config.cwd(cwd);
     }
     let terminal =
-        GhosttyTerminal::spawn(config).with_context(|| format!("spawning `{command}`"))?;
+        GhosttyTerminal::spawn(&config).with_context(|| format!("spawning `{command}`"))?;
 
     let surface = Rc::new(RefCell::new(Surface {
         terminal,
@@ -89,7 +89,8 @@ fn connect_draw(area: &gtk::DrawingArea, surface: &Rc<RefCell<Surface>>) {
         // the allocation and push it down, so a window resize becomes a
         // terminal resize and a SIGWINCH.
         let (cols, rows, metrics) = s.renderer.grid_for(cr, width, height);
-        let want = TerminalSize::new(cols, rows, metrics.width as u32, metrics.height as u32);
+        let (cell_w, cell_h) = metrics.pixel_size();
+        let want = TerminalSize::new(cols, rows, cell_w, cell_h);
         if s.terminal.size() != want {
             let _ = s.terminal.resize(want);
             s.snapshot = None;
@@ -184,6 +185,10 @@ fn start_tick(area: &gtk::DrawingArea, surface: &Rc<RefCell<Surface>>) {
                         window.set_title(&title);
                     }
                 }
+                // Same empty body as `Output` above, deliberately kept separate:
+                // that arm is a seam with a consumer coming, this one is a
+                // feature (an audible or visual bell) we have not built.
+                #[allow(clippy::match_same_arms)]
                 TerminalEvent::Bell => {}
                 TerminalEvent::Exited(reason) => {
                     eprintln!("spike-a: child exited ({reason})");

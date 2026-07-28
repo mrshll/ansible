@@ -1,0 +1,11 @@
+[toolchain]
+# Pinned so `cargo fmt` and `cargo clippy` agree everywhere. Lint enforcement is
+# only meaningful if the linter is the same one for every clone and for CI:
+# rustfmt's output and clippy's lint set both drift across releases, so an
+# unpinned toolchain turns `-D warnings` into a version lottery.
+#
+# `rust-version = "1.85"` in Cargo.toml is the *floor* this code compiles
+# against; this is the exact toolchain we lint with. Bump deliberately, and run
+# scripts/lint.sh when you do.
+channel = "1.97.1"
+components = ["rustfmt", "clippy"]

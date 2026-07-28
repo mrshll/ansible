@@ -24,7 +24,7 @@ fn bulk_lines() -> usize {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let size = TerminalSize::new(120, 40, 8, 16);
     let mut term = GhosttyTerminal::spawn(
-        TerminalConfig::command("/bin/sh", size).env("PS1", "").env("LC_ALL", "C.UTF-8"),
+        &TerminalConfig::command("/bin/sh", size).env("PS1", "").env("LC_ALL", "C.UTF-8"),
     )?;
 
     // Drain the raw-output tee for the whole run. Without a consumer the
@@ -101,7 +101,7 @@ fn measure_latency(
         // Clear the screen so the previous probe cannot be mistaken for this one.
         term.send(TerminalInput::Raw(b"\x1b[2J\x1b[H".to_vec()))?;
         term.pump_until(Duration::from_millis(50), |t| {
-            t.snapshot().map(|s| s.screen_text().is_empty()).unwrap_or(false)
+            t.snapshot().is_ok_and(|s| s.screen_text().is_empty())
         })?;
 
         let start = Instant::now();
@@ -122,7 +122,7 @@ fn measure_latency(
 /// Push a large amount of output through and measure sustained throughput.
 fn measure_throughput(size: TerminalSize) -> Result<(), Box<dyn std::error::Error>> {
     let mut term = GhosttyTerminal::spawn(
-        TerminalConfig::command("/bin/sh", size).env("PS1", "").env("LC_ALL", "C.UTF-8"),
+        &TerminalConfig::command("/bin/sh", size).env("PS1", "").env("LC_ALL", "C.UTF-8"),
     )?;
     let events = term.events();
 
@@ -154,11 +154,12 @@ fn measure_throughput(size: TerminalSize) -> Result<(), Box<dyn std::error::Erro
     println!("  lines requested : {lines}");
     println!("  completed       : {done}");
     println!("  elapsed         : {:.2} s", elapsed.as_secs_f64());
-    println!("  bytes tee'd     : {:.1} MiB", bytes as f64 / (1024.0 * 1024.0));
-    println!(
-        "  throughput      : {:.1} MiB/s",
-        (bytes as f64 / (1024.0 * 1024.0)) / elapsed.as_secs_f64().max(f64::EPSILON)
-    );
+    // A byte count only loses precision past 2^53 bytes (8 PiB), which this
+    // example cannot produce — and the figure is display-only either way.
+    #[allow(clippy::cast_precision_loss)]
+    let mib = bytes as f64 / (1024.0 * 1024.0);
+    println!("  bytes tee'd     : {mib:.1} MiB");
+    println!("  throughput      : {:.1} MiB/s", mib / elapsed.as_secs_f64().max(f64::EPSILON));
     println!("  dropped bytes   : {dropped}");
     if dropped > 0 {
         println!("  WARNING: the transcript tee lost bytes; capture would have a gap.");
