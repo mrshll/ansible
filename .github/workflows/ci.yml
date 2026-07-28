@@ -1,0 +1,113 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A superseded run on the same branch is wasted CI minutes and a confusing red X
+# on a commit nobody is looking at any more.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Debug symbols are the bulk of the cached target dir and nothing here reads a
+  # backtrace out of CI.
+  CARGO_PROFILE_TEST_DEBUG: 0
+
+jobs:
+  # Fast feedback on the crates with no system dependencies — the capture path
+  # and the hook types, which together hold most of the logic and all of the code
+  # the plan calls "no acceptable failure mode". Finishes in about a minute, so a
+  # broken golden test is visible long before the native job is done.
+  pure:
+    name: pure crates (fmt · clippy · test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Formatting covers the whole workspace here: rustfmt parses rather than
+      # builds, so it needs none of the native libraries.
+      - run: cargo fmt --all -- --check
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: cargo-pure-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-pure-${{ runner.os }}-
+
+      - run: cargo clippy -p ansible-capture -p ansible-hooks --all-targets -- -D warnings
+      - run: cargo test -p ansible-capture -p ansible-hooks
+
+  # The rest of the workspace: the terminal crate's native backend and the Tauri
+  # harness. Needs GTK3, WebKitGTK 4.1, libclang, and libghostty-vt built from a
+  # pinned Ghostty revision — which is why it is a separate job rather than a
+  # step, and why it caches aggressively.
+  native:
+    name: native (terminal · desktop)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The pinned Ghostty revision and Zig version live in
+      # build-libghostty-vt.sh, so hashing that script invalidates the cache
+      # exactly when the pin moves. ghostty-src is deliberately not cached: it
+      # is large, and a cache hit on the install prefix means it is never needed.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            vendor/libghostty-vt
+            vendor/zig-0.16.0
+          key: libghostty-${{ runner.os }}-${{ hashFiles('scripts/build-libghostty-vt.sh') }}
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: cargo-native-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-native-${{ runner.os }}-
+
+      # Same script a developer runs on a new machine. It installs the system
+      # libraries and builds libghostty-vt only if the cache above missed.
+      - run: scripts/setup-dev-env.sh
+
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # Includes the 16-test PTY matrix, which spawns real child processes
+      # through a real PTY. No display server is needed: the renderer lives in
+      # the harness, and the terminal crate is state only.
+      - run: cargo test --workspace
+
+  # Cheap checks on the shell scripts, which are load-bearing here — one of them
+  # is the SessionStart hook, and a hook that is not executable fails silently.
+  scripts:
+    name: scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: syntax
+        run: |
+          shopt -s nullglob
+          for f in scripts/*.sh .claude/hooks/*.sh; do
+            bash -n "$f" && echo "ok  $f"
+          done
+      - name: executable bit
+        run: |
+          shopt -s nullglob
+          status=0
+          for f in scripts/*.sh .claude/hooks/*.sh; do
+            if [[ ! -x "$f" ]]; then
+              echo "not executable: $f (git update-index --chmod=+x $f)" >&2
+              status=1
+            fi
+          done
+          exit $status

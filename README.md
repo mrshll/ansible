@@ -32,6 +32,8 @@ express the visibility rules) is still open.
   left, what "MVP complete" means, and the ordered work packages to get there.
   Amends the architecture plan in one place: ADR 0001 moved the terminal out of
   the webview, so `ChunkSource` and the replay clock move into Rust with it.
+- [W1 — provisioning runbook](docs/plan/w1-provisioning.md) — the accounts,
+  buckets, and tokens the MVP needs, each with a command that proves it works.
 - [Spike A — terminal embedding](docs/spikes/terminal-embedding.md) — **done.**
   libghostty runs a real Claude Code session inside a Tauri window on Linux.
 - [Spike B — transcript capture round trip](docs/spikes/capture-round-trip.md) —
@@ -40,6 +42,24 @@ express the visibility rules) is still open.
 - [Spike B — hook coverage](docs/spikes/hook-coverage.md) — **done.** Hooks can
   drive the grid, except for the one status that matters most.
 - [ADR 0001 — terminal composition model](docs/adr/0001-terminal-composition-model.md)
+
+## Development
+
+One script installs everything the workspace needs — GTK3, WebKitGTK, libclang,
+and `libghostty-vt` built from its pinned Ghostty revision:
+
+```bash
+scripts/setup-dev-env.sh          # ~5 min cold, seconds warm; idempotent
+cargo test --workspace
+```
+
+The pure crates need none of that, so `cargo test -p ansible-capture -p
+ansible-hooks` works on a bare checkout. CI splits along the same line: a
+one-minute job for the pure crates and a slower one that builds the native
+backend and the harness against a cached `libghostty-vt`. Cloud sessions run the
+same script from a `SessionStart` hook, because a container without it fails at
+`cargo build` on a missing `gdk-3.0` and quietly drops the terminal crate's 16
+PTY tests.
 
 ### Spike A in one paragraph
 
