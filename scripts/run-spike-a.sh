@@ -14,14 +14,13 @@ cd "$REPO_ROOT"
 
 "$REPO_ROOT/scripts/build-libghostty-vt.sh"
 
-# bindgen needs to find libclang to read the libghostty-vt headers.
-if [[ -z "${LIBCLANG_PATH:-}" ]]; then
-  for dir in /usr/lib/llvm-*/lib /usr/lib/*/; do
-    if [[ -e "$dir/libclang.so" || -e "$dir/libclang.so.1" ]]; then
-      export LIBCLANG_PATH="$dir"
-      break
-    fi
-  done
+# bindgen needs to find libclang to read the libghostty-vt headers. Leave the
+# choice to the detector: picking the first libclang on the machine lands on
+# ones that ship without Clang's builtin headers, and bindgen then dies on
+# glibc's <limits.h>. If nothing qualifies, leave LIBCLANG_PATH unset and let
+# bindgen search for itself; that is the working path on macOS.
+if [[ -z "${LIBCLANG_PATH:-}" ]] && dir="$("$REPO_ROOT/scripts/detect-libclang.sh")"; then
+  export LIBCLANG_PATH="$dir"
 fi
 
 if [[ $# -gt 0 ]]; then

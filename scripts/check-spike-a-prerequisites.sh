@@ -42,6 +42,29 @@ need_pkg() {
   fi
 }
 
+# bindgen needs libclang *and* Clang's builtin headers, because glibc's
+# <limits.h> uses #include_next to reach Clang's copy. They travel separately
+# on Ubuntu, so check the pair on whichever directory the build will load —
+# not on any directory that happens to have one half.
+need_libclang() {
+  local dir include
+  if [[ -n "${LIBCLANG_PATH:-}" ]]; then
+    for include in "$LIBCLANG_PATH"/clang/*/include; do
+      if [[ -f "$include/limits.h" && -f "$include/stddef.h" ]]; then
+        ok "libclang" "$LIBCLANG_PATH (from LIBCLANG_PATH)"
+        return
+      fi
+    done
+    bad "libclang" "LIBCLANG_PATH=$LIBCLANG_PATH has no Clang builtin headers"
+    return
+  fi
+  if dir="$("$REPO_ROOT/scripts/detect-libclang.sh")"; then
+    ok "libclang" "$dir"
+  else
+    bad "libclang" "apt install libclang-dev (or set LIBCLANG_PATH)"
+  fi
+}
+
 bold "Toolchain"
 need_command cargo "install from https://rustup.rs"
 need_command rustc "install from https://rustup.rs"
@@ -57,13 +80,10 @@ else
 fi
 
 bold "Native libraries"
-# bindgen needs libclang to read the libghostty-vt headers.
-if [[ -n "${LIBCLANG_PATH:-}" && -e "${LIBCLANG_PATH}/libclang.so" ]] \
-  || ls /usr/lib/llvm-*/lib/libclang.so* >/dev/null 2>&1 \
-  || ls /usr/lib/*/libclang.so* >/dev/null 2>&1; then
-  ok "libclang" "required by bindgen"
-else
-  bad "libclang" "apt install libclang-dev (or set LIBCLANG_PATH)"
+# On macOS bindgen finds Xcode's libclang on its own; the detector only knows
+# where Linux distributions put theirs.
+if [[ "$(uname -s)" == "Linux" ]]; then
+  need_libclang
 fi
 
 case "$(uname -s)" in
