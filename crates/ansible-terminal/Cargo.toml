@@ -1,0 +1,28 @@
+[package]
+name = "ansible-terminal"
+description = "libghostty-vt backed terminal: PTY lifecycle, terminal state, input encoding"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Deliberately free of Tauri, GTK, and hub dependencies. This crate must build
+# and run as a standalone binary; that is what keeps the composition model a
+# swappable decision rather than a rewrite.
+[dependencies]
+crossbeam-channel.workspace = true
+libc.workspace = true
+portable-pty.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[build-dependencies]
+bindgen = "0.72.1"
+
+[[example]]
+name = "vt-fixture"
+path = "examples/vt_fixture.rs"
+
+[[example]]
+name = "vt-latency"
+path = "examples/vt_latency.rs"
