@@ -3,10 +3,27 @@ resolver = "2"
 members = ["crates/ansible-terminal", "apps/desktop/src-tauri"]
 
 [workspace.package]
-version = "0.0.0"
-edition = "2021"
+version = "0.1.0"
+edition = "2024"
 license = "MIT"
+rust-version = "1.85"
 publish = false
+
+# Default posture for the crates that will make up most of this repo — the
+# capture path, the hook types, the hub client — all of which are pure Rust and
+# should stay that way.
+#
+# Two crates opt out in their own `[lints]` rather than inheriting these:
+# `ansible-terminal` binds a C library, so `unsafe_code = "forbid"` cannot hold
+# there (and `forbid`, unlike `deny`, cannot be relaxed per-item), and
+# `ansible-spike-a` reaches the same FFI surface through GTK. Both still run
+# `clippy::all`. See docs/adr/0001-terminal-composition-model.md.
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
 
 [workspace.dependencies]
 anyhow = "1.0.104"

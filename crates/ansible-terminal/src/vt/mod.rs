@@ -16,11 +16,7 @@ use crate::{Error, Result};
 
 /// Convert a `GhosttyResult` into a `Result`, naming the call for diagnostics.
 pub(crate) fn check(call: &'static str, result: sys::GhosttyResult) -> Result<()> {
-    if result == sys::GHOSTTY_SUCCESS {
-        Ok(())
-    } else {
-        Err(Error::Vt { call, code: result.0 })
-    }
+    if result == sys::GHOSTTY_SUCCESS { Ok(()) } else { Err(Error::Vt { call, code: result.0 }) }
 }
 
 /// Several libghostty structs are versioned by a leading `size` field, which

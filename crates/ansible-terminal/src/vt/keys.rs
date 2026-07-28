@@ -5,11 +5,11 @@
 //! state that the *application* has negotiated. `setopt_from_terminal` copies
 //! that live state into the encoder before each encode.
 
+use crate::Result;
 use crate::event::{Key, KeyAction, KeyEvent, Modifiers};
 use crate::sys;
-use crate::Result;
 
-use super::{check, Terminal};
+use super::{Terminal, check};
 
 pub struct KeyEncoder {
     raw: sys::GhosttyKeyEncoder,

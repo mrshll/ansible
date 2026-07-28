@@ -1,18 +1,18 @@
 //! [`TerminalBackend`] implemented over libghostty-vt and a real PTY.
 
 use std::io::Read;
-use std::sync::mpsc::{channel, Receiver as StdReceiver};
+use std::sync::mpsc::{Receiver as StdReceiver, channel};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use crossbeam_channel::{bounded, Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender, bounded};
 
 use crate::backend::{TerminalBackend, TerminalEvents};
 use crate::config::TerminalConfig;
 use crate::event::{ExitReason, TerminalEvent, TerminalInput, TerminalSize};
 use crate::pty::Pty;
 use crate::snapshot::Snapshot;
-use crate::vt::{keys, KeyEncoder, RenderState, Terminal, TerminalCallbacks};
+use crate::vt::{KeyEncoder, RenderState, Terminal, TerminalCallbacks, keys};
 use crate::{Error, Result};
 
 /// How many read chunks may queue before the reader thread blocks.

@@ -225,7 +225,7 @@ unsafe extern "C" fn on_bell(_terminal: sys::GhosttyTerminal, userdata: *mut c_v
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::mpsc::{channel, Receiver};
+    use std::sync::mpsc::{Receiver, channel};
 
     fn terminal(
         cols: u16,

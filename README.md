@@ -12,9 +12,14 @@ built to be reused for others.
 Agent sessions run locally in the user's own PTY under their own Claude
 credentials. The app never calls a model API.
 
+Phase 1 targets macOS and Linux. Sessions publish a title-only presence card by
+default; transcript sharing is an explicit owner-controlled toggle. Shared
+sessions aim for sub-second live viewing, with durable transcript chunks stored
+outside the real-time coordination database.
+
 ## Status
 
-Planning, plus one runnable spike.
+Planning and de-risking. Spike A is complete; product code has not started.
 
 - [Architecture plan](docs/plan/multiplayer-hub.md) — repo layout and module
   boundaries, SpacetimeDB schema and reducer surface, session lifecycle data

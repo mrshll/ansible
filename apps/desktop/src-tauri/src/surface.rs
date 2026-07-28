@@ -8,7 +8,7 @@ use ansible_terminal::{
     GhosttyTerminal, Snapshot, TerminalBackend, TerminalConfig, TerminalEvent, TerminalInput,
     TerminalSize,
 };
-use anyhow::{anyhow, Context as _};
+use anyhow::{Context as _, anyhow};
 use gtk::prelude::*;
 use gtk::{gdk, glib};
 

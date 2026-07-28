@@ -2,11 +2,11 @@
 
 use std::ffi::c_void;
 
+use crate::Result;
 use crate::snapshot::{CellStyle, CellWidth, Cursor, CursorShape, Rgb, Snapshot, SnapshotBuilder};
 use crate::sys;
-use crate::Result;
 
-use super::{check, sized, Terminal};
+use super::{Terminal, check, sized};
 
 /// Owns a `GhosttyRenderState` plus the two reusable iterators.
 ///
@@ -232,11 +232,7 @@ impl RenderState {
             .unwrap_or(default_bg);
 
         // Applying inverse here keeps every renderer from re-implementing it.
-        if style.inverse {
-            (style, bg, fg)
-        } else {
-            (style, fg, bg)
-        }
+        if style.inverse { (style, bg, fg) } else { (style, fg, bg) }
     }
 
     fn cell_color(&mut self, kind: sys::GhosttyRenderStateRowCellsData) -> Option<Rgb> {

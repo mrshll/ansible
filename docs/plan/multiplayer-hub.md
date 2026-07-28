@@ -25,9 +25,16 @@ a settled fact. Overturning one is cheap now and expensive after Phase 1.
 | # | Decision | Chosen | If you choose otherwise |
 |---|---|---|---|
 | A1 | Transcript fidelity | **Both** raw PTY archive *and* a derived structured event index. Viewer defaults to structured, can drop into terminal replay. | Raw-only makes transcripts opaque blobs — no search, no grid status independent of hooks, no summarization, awkward reflow. Structured-only loses rendered diffs, spinners, and anything TUI-native, and makes you fully dependent on hook coverage. |
-| A2 | Live-tail transport | **R2 cursor-follow at 1–3s**, with the viewer's chunk-source interface defined so a Durable Object relay can slot in later. | A relay from day one buys sub-second and costs you a second transport, connection lifecycle, and a reconnect/backfill seam to stitch between relay and archive. Cursor-follow has one path for both live and backfill — no seam. |
+| A2 | Live-tail transport | **Aim for sub-second via a Worker-hosted Durable Object relay**, while every frame is also batched to R2. Put relay and cursor-follow behind one `ChunkSource`; Spike B may select R2 cursor-follow if relay complexity or cost is disproportionate. | Starting with 1–3 second R2 cursor-follow is simpler and gives backfill and live viewing one path, but does not meet the requested real-time feel. |
 | A3 | Capture scope | **In-app launcher only** for Phase 1, with capture/registration factored as a local service the app happens to host. | Capturing *any* Claude Code session on the machine is a much better adoption story but you lose PTY ownership: you get hook events and little else, plus a daemon with its own lifecycle, auth, and update path. See open question #6 — this is the assumption most likely to be wrong. |
-| A4 | Sharing default | **Org-visible by default**, with a redaction pass before bytes leave the machine, a private-session toggle, and pause/scrub controls. | Opt-in-per-session leaves the grid empty most of the time, which is the entire value prop. No-redaction is fastest and ends in durable secrets in R2. |
+| A4 | Sharing default | **Transcript-private by default; the owner explicitly toggles sharing.** Every session can still publish a title-only directory card and presence, but output stays in the local spool until shared. Sharing uploads the session so far and then starts its live relay. | Org-visible-by-default creates a fuller grid, but violates the requested consent model and risks sending sensitive output before the owner notices. Uploading private bytes with access controls is operationally simpler, but turns an authorization bug into a disclosure. |
+
+Phase 1 targets **macOS and Linux**, not Windows. That adds CI, packaging,
+keychain/secret-service, PTY, desktop notification, deep-link, and native-surface
+variants. Most PTY and Tauri code remains shared; terminal embedding is the
+largest platform-specific uncertainty and is why Spike A must prove both
+targets. A macOS-only first release remains the fallback if Linux doubles the
+terminal-integration work rather than adding a bounded adapter.
 
 A fifth, less contentious one: **nothing in SpacetimeDB may grow with transcript
 volume.** Row budget is O(sessions) + O(status transitions), both bounded. This
@@ -106,10 +113,13 @@ The read-only teammate viewer is the *same component* in `replay` mode fed by a
 `ChunkSource` instead of a PTY. Owner view and teammate view are one code path
 with two sources — that is what makes feature #4 nearly free once #1 works.
 
-**`ChunkSource` is the live-tail boundary.** `CursorFollowSource` (Phase 1)
-polls R2 as the SpacetimeDB cursor advances; a future `RelaySource` subscribes
-to a Durable Object. The viewer cannot tell the difference. This is the seam
-that makes A2 reversible.
+**`ChunkSource` is the live-tail boundary.** `RelaySource` consumes ephemeral
+frames over a Durable Object WebSocket; `CursorFollowSource` retrieves durable
+chunks as the SpacetimeDB cursor advances. `LiveChunkSource` joins them: it
+backfills through the cursor, tails the relay, deduplicates by sequence, and
+falls back to cursor-follow after a disconnect. The viewer cannot tell which
+path supplied a frame. This seam makes the real-time target reversible if Spike
+B shows that the relay is too complex or expensive.
 
 ### Two SpacetimeDB connections, not one
 
@@ -142,7 +152,8 @@ The module is the schema source of truth; TS bindings are generated from it
 | Table | Key | Holds | Growth |
 |---|---|---|---|
 | `member` | `identity` | github_login/id, display_name, avatar_url, role, joined_at, last_seen | O(team) |
-| `session` | `session_id` | owner, host_label, repo, branch, title, `status`, status_detail, model_label, started_at, last_event_at, ended_at, exit_reason, `visibility`, transcript_key, **chunk_cursor**, **byte_cursor**, event_count | O(sessions) |
+| `session_listing` | `session_id` | owner, title, coarse status, started_at, ended_at — the title-only org directory card that exists even while output is private | O(sessions) |
+| `session` | `session_id` | owner, host_label, repo, branch, status detail, model_label, last_event_at, exit_reason, `visibility`, transcript_key, **chunk_cursor**, **byte_cursor**, event_count | O(sessions) |
 | `session_status_history` | auto id | session_id, status, at — **transitions only** | O(transitions), pruned |
 | `presence` | `connection_id` | identity, session_id (`None` = on the grid), `focus`, since | O(live viewers) |
 | `mention` | auto id | session_id, from, to, body, `anchor`, created_at, read_at, delivered_at | O(mentions) |
@@ -150,7 +161,14 @@ The module is the schema source of truth; TS bindings are generated from it
 | `access_grant` | (session_id, subject) | level, granted_by, at | O(grants) |
 | `hub_config` | singleton | github_org, worker_base_url, schema_version, feature flags | 1 |
 
-`access_grant` exists from day one even though A4 makes it mostly unused.
+Splitting `session_listing` from `session` is an authorization boundary, not a
+view-model convenience. It prevents accidental field leakage when a private
+session must remain discoverable for title-only presence. The listing's coarse
+status should reveal only lifecycle (`Active` or `Done`), not whether a private
+agent is awaiting approval or input.
+
+`access_grant` exists from day one even though Phase 1's org-wide sharing makes
+it mostly unused.
 Retrofitting authorization onto a live system is miserable; an unused table is
 free.
 
@@ -172,7 +190,8 @@ it's the highest-value thing the grid can surface.
 ### Reducers, grouped by caller
 
 **Lifecycle — agent connection (Rust core)**
-- `register_session(...)` — upsert, **idempotent on session_id** so a crash-restart re-attaches instead of duplicating.
+- `register_session(...)` — atomically creates the title-only listing and private detail row; idempotent on `session_id` so a crash-restart re-attaches instead of duplicating.
+- `set_session_visibility(session_id, visibility)` — owner-only opt-in/opt-out; revokes new relay/archive reads immediately when made private.
 - `update_session_status(session_id, status, detail)` — owner-checked; writes a history row only on transition. Hottest reducer in the system; must tolerate being called far more often than it changes anything.
 - `set_session_title(session_id, title)` — once the first prompt lands.
 - `heartbeat_session(session_id)` — liveness.
@@ -199,8 +218,9 @@ it's the highest-value thing the grid can surface.
 
 ### Row-level security
 
-Use `#[client_visibility_filter]` RLS so `Private` sessions never reach
-non-owners and `mention` rows reach only sender and recipient. **Verify RLS
+Use `#[client_visibility_filter]` RLS so only `session_listing` reaches the org
+for private sessions, while `session` reaches the owner and authorized viewers;
+`mention` rows reach only sender and recipient. **Verify RLS
 support and expressiveness on Maincloud early** — if the rules can't be
 expressed there, reads must be funneled through a filtering intermediary and
 the architecture shifts noticeably. This is a correctness dependency, not a
@@ -220,14 +240,15 @@ sequenceDiagram
     participant S as Slack bridge
 
     A->>H: register_session (Starting)
-    H-->>B: grid tile appears
+    H-->>B: title-only grid tile appears
     A->>A: PTY spawn + hooks installed
-    loop every ~1s / 64KB
-        A->>W: PUT chunk n (redacted, ordered)
-        W->>R: write chunk n
-        W->>H: advance_transcript_cursor(n)
-        H-->>B: cursor moved
-        B->>W: GET chunks (cursor_seen..n]
+    A->>H: set_session_visibility(Org)
+    loop continuously + batch every ~1s / 64KB
+        A->>W: WebSocket frame n (redacted, ordered)
+        W-->>B: relay frame n
+        W->>R: write durable chunk
+        W->>H: advance_transcript_cursor(chunk)
+        H-->>B: durable cursor moved
     end
     A->>H: update_session_status(AwaitingApproval)
     B->>H: set_focus(session, Session)
@@ -240,22 +261,31 @@ sequenceDiagram
 ```
 
 **1 — Launch.** User picks repo/branch in the grid. `spawn_session` allocates a
-session id, writes a session-scoped Claude Code settings overlay whose hooks
+session id and defaults its transcript to private, then writes a session-scoped
+Claude Code settings overlay whose hooks
 point at a localhost receiver with a per-session bearer token, forks a PTY
 running `claude`, attaches the terminal for interactive render and the capture
 tee to the PTY read side.
 
 **2 — Register.** `register_session` fires *before the first byte*, so the grid
-shows a `Starting` tile within one round trip and there is a row for the cursor
-to attach to. Ordering matters here: a cursor bump for an unregistered session
-is an error case you don't want to design around.
+shows a title-only `Starting` tile within one round trip and there is a row for
+the cursor to attach to. Teammates can see that the owner has a session and who
+is present, but cannot subscribe to detail or fetch bytes. The owner can change
+the title without sharing. When the owner turns on **Share transcript**, the
+app calls `set_session_visibility(Org)`, uploads the locally spooled history,
+and starts the relay. Only then do authorization checks permit teammates into
+the detail, relay, and archive paths. Turning sharing off closes viewer sockets
+and blocks new reads immediately; already-downloaded output cannot be recalled.
+Ordering matters here: a cursor bump for an unregistered session is an error
+case you don't want to design around.
 
 **3 — Stream.** Three independent streams leave one session:
 
-- *Bytes* → ring buffer → redaction → chunker (flush at ~64KB or ~1s, whichever
-  first) → `PUT /s/{id}/chunks/{n}` → Worker checks the caller owns the session
-  and that `n` is the expected next → writes `r2://transcripts/{id}/{n}.jsonl.zst`
-  → `advance_transcript_cursor`. The envelope carries seq, byte range, wall-clock
+- *Bytes* → ring buffer → redaction → ordered frames over a Worker WebSocket.
+  The session's Durable Object authenticates viewers, fans frames out for the
+  real-time feel, and batches them at ~64KB or ~1s (whichever comes first) into
+  `r2://transcripts/{id}/{n}.jsonl.zst` before calling
+  `advance_transcript_cursor`. The envelope carries seq, byte range, wall-clock
   span, and per-record timing deltas so replay is time-accurate rather than
   dumped all at once.
 - *Status* — hooks (`UserPromptSubmit`, `PreToolUse`, `PostToolUse`,
@@ -269,20 +299,21 @@ is an error case you don't want to design around.
   search possible later.
 
 Backpressure: uploads are a bounded queue; on Worker failure, retry with
-backoff and keep buffering to a local spool file. The cursor simply stops
-advancing and viewers see "live tail stalled." Never drop-and-continue — order
-is the one invariant, and a visible stall is strictly better than a silent gap.
+backoff and keep buffering to a local spool file. The cursor stops advancing,
+the relay disconnects, and viewers show "live tail stalled" while polling for
+durable progress. Never drop-and-continue — order is the one invariant, and a
+visible stall is strictly better than a silent gap.
 
-**4 — Viewed by a teammate.** B's tile flips to `Working`. Opening it calls
-`set_focus`, and A immediately sees B's avatar on the session — presence is
+**4 — Viewed by a teammate.** Opening a shared session calls `set_focus`, and A immediately sees B's avatar on the session — presence is
 symmetric, instant, and pure SpacetimeDB, which makes it the cheapest
 "multiplayer" signal in the system. B's viewer subscribes to that one `session`
 row, reads `chunk_cursor`, fetches `(seen..cursor]` from the Worker (which
 re-checks authorization and either streams from R2 or issues a short-lived
-signed URL), and feeds a replay-mode `TerminalSurface`. As the cursor advances,
-the subscription fires and the viewer fetches the delta. **Backfill and live
-tail are the identical path**, which is the main argument for cursor-follow: a
-teammate joining at minute 30 and one watching from minute 0 run the same code.
+signed URL), then joins the authenticated relay and feeds both into a
+replay-mode `TerminalSurface`. Sequence numbers deduplicate overlap. Cursor
+updates close any relay gap and eventually confirm that relayed frames are
+durable. Opening a private session instead shows only its title and current
+viewers; it neither reveals detail nor opens Worker connections.
 
 **5 — Mention.** B types `@alice take this one` in the session side rail →
 `create_mention` with an anchor (chunk seq + byte offset — this is why the
@@ -308,7 +339,7 @@ re-upload the tail on next launch and finalize late.
 
 ## 4. Two de-risking spikes
 
-Disjoint code, independent questions — run them in parallel.
+Disjoint code, independent questions; they may run in parallel once staffed.
 
 ### Spike A — libghostty-rs render + input inside Tauri (2–3 days)
 
@@ -316,7 +347,7 @@ The real unknown is not "does ghostty render." It is **how a GPU-rendered
 surface coexists with a webview, and who owns input focus.** Three candidate
 models; the spike picks one:
 
-1. **Native child surface** (NSView / HWND / GTK child) layered over the webview
+1. **Native child surface** (NSView / GTK child) layered over the webview
    at a rect the webview reports. Best fidelity and perf; worst integration —
    z-order, resize sync, hit-testing, rounded corners, and it breaks the moment
    the webview scrolls.
@@ -327,12 +358,13 @@ models; the spike picks one:
    with diffed cells sent to a webview renderer. Gives up ghostty's renderer but
    keeps its VT correctness, and is a strictly better xterm.js than xterm.js.
 
-**Success criteria:** a real interactive `claude` session; correct rendering of
-its TUI (box drawing, truecolor, input box, streaming output); keyboard input
+**Success criteria:** on both macOS and Linux, a real interactive `claude`
+session; correct rendering of its TUI (box drawing, truecolor, input box,
+streaming output); keyboard input
 with modifiers, paste, and Ctrl-C; resize → SIGWINCH → correct reflow; IME at
 least not broken. Measured: input-to-glyph latency, CPU under heavy output
 (pipe a large build log), memory. Plus the unglamorous question — does it build
-on all three targets, and what does libghostty-rs actually expose today? It is
+on both targets, and what does libghostty-rs actually expose today? It is
 young, and its API surface and platform coverage are the substantive risk.
 
 **Deliverable:** standalone binary in `crates/ansible-terminal` plus a Tauri
@@ -348,11 +380,12 @@ No UI polish, no auth beyond a hardcoded token, no libghostty (use
 `portable-pty`). Spawn `claude` under a PTY, tee bytes, install the hook set,
 run a genuinely long task with real tool approvals, chunk and upload through a
 deployed Worker into real R2, bump the cursor in a deployed Maincloud module,
-and have a **second process** subscribe and reconstruct the stream.
+and have a **second process** backfill, join the relay, and reconstruct the
+stream without gaps or duplicates.
 
 **Success criteria:**
 - **Byte-exact reconstruction** from R2 chunks versus a local reference capture. This becomes the golden test that protects the capture path forever.
-- **Perceived latency:** p50/p95 from "bytes hit the PTY" to "second viewer renders." Target p95 < 3s.
+- **Perceived latency:** p50/p95 from "bytes hit the PTY" to "second viewer renders." Target relay p95 < 1s; also measure cursor-follow as the simpler fallback.
 - **Hook coverage:** does the status machine correctly identify awaiting-approval / working / idle / done on a real session, and which transitions are ambiguous or missing? This is the finding most likely to change the schema.
 - **Cost at team scale:** chunks and bytes per session, R2 ops/month, reducer call rate for ~10 engineers × N sessions/day. Cheap to compute once, and it decides whether the chunking parameters are right.
 - **Failure injection:** kill the Worker mid-session, kill the app mid-session, kill the network. Verify no gaps and no reordering after recovery.
@@ -362,8 +395,10 @@ deployed module and Worker, a measurements writeup, and a first redaction
 ruleset derived from what actually appeared in real output.
 
 **Kill criteria:** byte-exactness or ordering can't be guaranteed under failure
-injection → the chunk protocol needs rework before Phase 1. Or p95 > ~8s →
-cursor-follow is insufficient and the relay moves into Phase 1.
+injection → the chunk protocol needs rework before Phase 1. If the relay cannot
+stay near the latency target at acceptable complexity/cost, explicitly back
+off to cursor-follow and document its measured delay rather than hiding a
+second unreliable transport behind the UI.
 
 ---
 

@@ -1,8 +1,8 @@
 //! The host contract every terminal implementation satisfies.
 
+use crate::Result;
 use crate::event::{TerminalEvent, TerminalInput, TerminalSize};
 use crate::snapshot::Snapshot;
-use crate::Result;
 
 /// Receiving end of a terminal's event stream.
 ///

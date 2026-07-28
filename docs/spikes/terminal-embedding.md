@@ -414,22 +414,38 @@ remaining gap in Spike A.
 ## 7. Provenance
 
 The brief described this spike as continuing from commit `968ad57` ("Scaffold
-libghostty terminal embedding spike"), said to have added
-`crates/ansible-terminal`, the `TerminalBackend` contract, typed events,
-`scripts/check-spike-a-prerequisites.sh`, and this document.
+libghostty terminal embedding spike"). **That commit does not exist** in this
+repository — absent from the object store, the reflog, and the remote. The
+branch pointed at `631430e`, identical to `main`.
 
-**That commit does not exist.** It is absent from the local object store, the
-reflog, and the remote; the branch pointed at `631430e` (identical to `main`),
-and the repository contained only `README.md` and `docs/plan/multiplayer-hub.md`.
-Everything listed above was therefore written from scratch in this change,
-guided by the module boundaries in the architecture plan.
+The scaffold it described was real, but lived in PR #1 on
+`codex/plan-internal-team-hub-for-ai-sessions`, unmerged at the time. This work
+was therefore written independently and later reconciled with it. From that
+scaffold the merged tree keeps:
 
-The earlier environment notes were also inaccurate for this run: GitHub,
-crates.io, and npm were all reachable, and GTK/WebKitGTK development packages
-installed normally. The one real environment obstacle was that Zig's package
+- the revised architecture plan — transcript-private by default, a relay-first
+  live-tail target, the `session_listing` authorization split, and Phase 1
+  scoped to macOS and Linux;
+- the workspace lint posture (`unsafe_code = "forbid"`, `clippy::pedantic`) as
+  the default for future pure-Rust crates;
+- edition 2024 and `rust-version = "1.85"`.
+
+Superseded by this work, with reasons:
+
+| Scaffold | Superseded because |
+|---|---|
+| `TerminalBackend` with `TerminalState` / `TerminalCommand` / borrowed `TerminalInput<'a>` | Written before the real API was known. libghostty hands back *state*, not pixels, so the contract needs `snapshot()`; and its callbacks fire synchronously inside `vt_write` where re-entry is forbidden, so the host needs an explicit `pump()`. Owned input replaces borrowed because encoded bytes outlive the call. |
+| `unsafe_code = "forbid"` applied workspace-wide | Not satisfiable in a C binding, and `forbid` cannot be relaxed per-item. Kept workspace-wide; `ansible-terminal` and `ansible-spike-a` declare their own lints. |
+| `scripts/check-spike-a-prerequisites.sh` checking `gtk4` | Tauri v2 on Linux is GTK3 + WebKitGTK 4.1. Checking GTK4 would pass on a machine that cannot build the harness and fail on one that can. |
+| The `libghostty(\.so)?` library probe | There is no such shared library to find; libghostty-vt is built from source at a pinned revision. |
+| The earlier draft of this document | Recorded the spike as blocked on a broken environment. |
+
+That earlier draft's environment findings did not hold for this run: GitHub,
+crates.io, and npm were all reachable, and the GTK/WebKitGTK development
+packages installed normally. The one real obstacle was that Zig's package
 fetcher cannot negotiate this session's CONNECT proxy — an environment
-limitation, not a libghostty one, and worked around in `seed-zig-cache.sh`
-without weakening hash verification.
+limitation, not a libghostty one, worked around in `seed-zig-cache.sh` without
+weakening hash verification.
 
 ---
 
