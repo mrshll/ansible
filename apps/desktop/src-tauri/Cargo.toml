@@ -1,0 +1,36 @@
+[package]
+name = "ansible-spike-a"
+description = "Spike A harness: a libghostty-vt terminal rendered natively beside a Tauri webview"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# Not inheriting the workspace lints: this binary drives GTK and the terminal
+# FFI surface, so `unsafe_code = "forbid"` cannot apply.
+[lints.rust]
+unsafe_code = "allow"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+ansible-terminal = { path = "../../../crates/ansible-terminal" }
+anyhow.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2.11.5", features = [] }
+
+# Tauri v2 on Linux is GTK3 + webkit2gtk-4.1, so the native surface must be a
+# GTK3 widget. These versions are the ones Tauri itself links against; mixing in
+# the gtk4 generation would produce two incompatible GObject worlds in one
+# process.
+[target.'cfg(target_os = "linux")'.dependencies]
+cairo-rs = "0.18"
+gtk = "0.18"
+pango = "0.18"
+pangocairo = "0.18"

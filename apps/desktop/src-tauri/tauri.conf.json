@@ -1,0 +1,25 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "ansible-spike-a",
+  "version": "0.0.0",
+  "identifier": "tech.upstream.ansible.spike-a",
+  "build": {
+    "frontendDist": "../src"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "ansible — Spike A: libghostty terminal in Tauri",
+        "width": 1100,
+        "height": 820,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'"
+    }
+  },
+  "bundle": {
+    "active": false
+  }
+}
