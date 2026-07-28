@@ -10,6 +10,13 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# The terminal child should start where the user invoked us, not where cargo
+# has to run from. Capture that before the cd below; without it portable-pty
+# falls back to $HOME, so `run-spike-a.sh claude` would open a session against
+# the home directory instead of the project the user is sitting in.
+export ANSIBLE_TERMINAL_CWD="${ANSIBLE_TERMINAL_CWD:-$PWD}"
+
 cd "$REPO_ROOT"
 
 "$REPO_ROOT/scripts/build-libghostty-vt.sh"

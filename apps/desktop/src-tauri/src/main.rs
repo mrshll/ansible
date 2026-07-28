@@ -52,11 +52,19 @@ fn run() -> anyhow::Result<()> {
         .map(|s| s.split_whitespace().map(str::to_string).collect())
         .unwrap_or_default();
 
+    // Where the child starts. `run-spike-a.sh` has to cd to the repo root to
+    // run cargo, so it forwards the user's invocation directory here; falling
+    // back to our own cwd keeps a bare `cargo run` sensible. Either beats
+    // leaving it unset, which makes portable-pty default to $HOME.
+    let cwd = std::env::var_os("ANSIBLE_TERMINAL_CWD")
+        .map(std::path::PathBuf::from)
+        .or_else(|| std::env::current_dir().ok());
+
     tauri::Builder::default()
         .setup(move |app| {
             let window =
                 app.get_webview_window("main").ok_or_else(|| anyhow::anyhow!("no main window"))?;
-            surface::attach(&window, &command, &args)?;
+            surface::attach(&window, &command, &args, cwd.as_deref())?;
             Ok(())
         })
         .run(tauri::generate_context!())

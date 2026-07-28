@@ -354,7 +354,10 @@ cargo test --workspace                                        # 70 tests
 
 The terminal command is configurable via `ANSIBLE_TERMINAL_COMMAND` and
 `ANSIBLE_TERMINAL_ARGS`, defaulting to `$SHELL`, so the harness runs on machines
-without Claude Code credentials.
+without Claude Code credentials. The child's working directory comes from
+`ANSIBLE_TERMINAL_CWD`, which `run-spike-a.sh` sets to the directory it was
+invoked from, so `scripts/run-spike-a.sh claude` opens a session against the
+project you are sitting in.
 
 Ubuntu 24.04 packages: `libgtk-3-dev libwebkit2gtk-4.1-dev libcairo2-dev
 libpango1.0-dev libclang-dev` (plus `xvfb` for headless runs).

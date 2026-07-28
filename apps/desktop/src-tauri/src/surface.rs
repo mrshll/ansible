@@ -31,7 +31,12 @@ struct Surface {
 }
 
 /// Pack a terminal surface as a sibling of the webview and start driving it.
-pub fn attach(window: &tauri::WebviewWindow, command: &str, args: &[String]) -> anyhow::Result<()> {
+pub fn attach(
+    window: &tauri::WebviewWindow,
+    command: &str,
+    args: &[String],
+    cwd: Option<&std::path::Path>,
+) -> anyhow::Result<()> {
     // `default_vbox` is the GTK box Tauri puts the webview in. Packing here
     // makes the terminal a sibling of the webview rather than an overlay.
     let vbox = window
@@ -52,6 +57,9 @@ pub fn attach(window: &tauri::WebviewWindow, command: &str, args: &[String]) -> 
 
     let mut config = TerminalConfig::command(command, TerminalSize::new(80, 24, 8, 16));
     config = config.args(args.iter().cloned());
+    if let Some(cwd) = cwd {
+        config = config.cwd(cwd);
+    }
     let terminal =
         GhosttyTerminal::spawn(config).with_context(|| format!("spawning `{command}`"))?;
 
