@@ -19,11 +19,19 @@ outside the real-time coordination database.
 
 ## Status
 
-Planning and de-risking. Spike A is complete; product code has not started.
+De-risking is done; integration has not started. Both spikes have reported, and
+the three pure crates below are built and tested. Everything networked — the
+SpacetimeDB module, the Worker, identity, and the webview — is unstarted, and
+one gating question (GitHub OAuth → SpacetimeDB `Identity`, and whether RLS can
+express the visibility rules) is still open.
 
 - [Architecture plan](docs/plan/multiplayer-hub.md) — repo layout and module
   boundaries, SpacetimeDB schema and reducer surface, session lifecycle data
   flow, the two de-risking spikes, and the open questions gating Phase 1.
+- [Phase 1 execution plan](docs/plan/phase-1-execution.md) — what the spikes
+  left, what "MVP complete" means, and the ordered work packages to get there.
+  Amends the architecture plan in one place: ADR 0001 moved the terminal out of
+  the webview, so `ChunkSource` and the replay clock move into Rust with it.
 - [Spike A — terminal embedding](docs/spikes/terminal-embedding.md) — **done.**
   libghostty runs a real Claude Code session inside a Tauri window on Linux.
 - [Spike B — transcript capture round trip](docs/spikes/capture-round-trip.md) —
