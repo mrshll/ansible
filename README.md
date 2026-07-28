@@ -12,13 +12,21 @@ built to be reused for others.
 Agent sessions run locally in the user's own PTY under their own Claude
 credentials. The app never calls a model API.
 
+Phase 1 targets macOS and Linux. Sessions publish a title-only presence card by
+default; transcript sharing is an explicit owner-controlled toggle. Shared
+sessions aim for sub-second live viewing, with durable transcript chunks stored
+outside the real-time coordination database.
+
 ## Status
 
-Planning. No implementation yet.
+Planning and de-risking. Spike A implementation is underway; product code has
+not started.
 
 - [Architecture plan](docs/plan/multiplayer-hub.md) — repo layout and module
   boundaries, SpacetimeDB schema and reducer surface, session lifecycle data
   flow, the two de-risking spikes, and the open questions gating Phase 1.
+- [Spike A: terminal embedding](docs/spikes/terminal-embedding.md) — libghostty
+  host contract, prerequisite findings, and the native integration experiment.
 
 ## Intended stack
 
