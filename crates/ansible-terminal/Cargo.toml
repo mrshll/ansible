@@ -40,3 +40,7 @@ path = "examples/vt_latency.rs"
 [[example]]
 name = "vt-record"
 path = "examples/vt_record.rs"
+
+[[example]]
+name = "vt-drive"
+path = "examples/vt_drive.rs"

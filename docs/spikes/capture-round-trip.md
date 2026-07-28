@@ -258,13 +258,14 @@ credentials:
 | End-to-end relay latency (p50/p95 PTY → second viewer) | both of the above |
 | Relay-vs-cursor-follow decision (assumption A2) | both of the above |
 | Failure injection against a *real* Worker | both of the above |
-| Hook coverage → status machine (open question #2) | nothing — see below |
+| Hook coverage → status machine (open question #2) | **nothing — now done, see below** |
 
-The last row is **not** infrastructure-blocked. Claude Code is installed and
-works in this environment, so hooks could be installed against a localhost
-receiver and real payloads captured. That is the highest-value remaining piece
-of Spike B, and the plan calls it "the finding most likely to change the
-schema." It is the obvious next step.
+The last row was never infrastructure-blocked, and it is now finished:
+[hook-coverage.md](hook-coverage.md) records the measurements. Headline: four
+statuses come out of hooks cleanly, but `AwaitingApproval` cannot — a denied tool
+fires `PreToolUse` and never `PostToolUse`, which is indistinguishable from a
+tool that is merely slow. It has to come from the terminal instead. That changes
+four things in the schema; §4 of that document lists them.
 
 What the local work does establish for the deployed half: the chunk protocol,
 the ordering invariants the Worker must enforce (`seq` is the expected next,
