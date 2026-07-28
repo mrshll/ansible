@@ -1,7 +1,7 @@
 //! Spike A harness: a libghostty-vt terminal rendered natively inside a Tauri window.
 //!
 //! Composition model: the terminal is a GTK `DrawingArea` packed as a *sibling*
-//! of the WebKit webview inside the window's default vertical box. It is not
+//! of the `WebKit` webview inside the window's default vertical box. It is not
 //! overlaid on the webview, so there is no z-order fight, no hit-testing
 //! ambiguity, and nothing to re-sync when the webview scrolls.
 //!

@@ -98,23 +98,29 @@ impl Pty {
         self.exited.load(Ordering::SeqCst)
     }
 
-    pub fn kill(&mut self) -> Result<()> {
+    /// Kill the child and reap it. Idempotent, and infallible by design: a
+    /// child that is already gone is the state this asks for, and the caller has
+    /// no better recovery than we do.
+    pub fn kill(&mut self) {
         if self.has_exited() {
-            return Ok(());
+            return;
         }
         let _ = self.child.kill();
         let _ = self.child.wait();
         self.exited.store(true, Ordering::SeqCst);
-        Ok(())
     }
 }
 
 fn pty_size(size: TerminalSize) -> PtySize {
+    // The pixel dimensions land in `winsize.ws_xpixel`/`ws_ypixel`, which are
+    // `u16`. They are advisory — applications that care read the grid size — so
+    // saturate a grid too large to describe rather than wrapping to a small
+    // number, which would be reported as a real, wrong size.
     PtySize {
         rows: size.rows,
         cols: size.cols,
-        pixel_width: size.pixel_width() as u16,
-        pixel_height: size.pixel_height() as u16,
+        pixel_width: u16::try_from(size.pixel_width()).unwrap_or(u16::MAX),
+        pixel_height: u16::try_from(size.pixel_height()).unwrap_or(u16::MAX),
     }
 }
 
@@ -122,10 +128,17 @@ fn pty_size(size: TerminalSize) -> PtySize {
 /// signal-terminated child is reported as `128 + signal`, matching the shell
 /// convention, so recover the signal number from that range.
 fn exit_reason(code: u32) -> ExitReason {
-    if (129..=192).contains(&code) {
-        ExitReason::Signal((code - 128) as i32)
-    } else {
-        ExitReason::Code(code as i32)
+    // A Unix wait status fits a byte. portable-pty widens to u32 for Windows,
+    // where a code can exceed `i32::MAX`; saturate so a huge code cannot read
+    // back as a negative one.
+    let Ok(status) = u8::try_from(code) else {
+        return ExitReason::Code(i32::try_from(code).unwrap_or(i32::MAX));
+    };
+    match status {
+        // Signals are 1..=64, so this band is exactly `128 + signal` and both
+        // conversions below are exact.
+        129..=192 => ExitReason::Signal(i32::from(status - 128)),
+        _ => ExitReason::Code(i32::from(status)),
     }
 }
 

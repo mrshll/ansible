@@ -8,13 +8,14 @@
 //!   cargo run -p ansible-terminal --example vt-fixture
 //!   cargo run -p ansible-terminal --example vt-fixture -- /bin/bash
 
+use std::fmt::Write as _;
 use std::time::Duration;
 
 use ansible_terminal::{
     GhosttyTerminal, Snapshot, TerminalBackend, TerminalConfig, TerminalInput, TerminalSize,
 };
 
-const SCRIPT: &str = r#"
+const SCRIPT: &str = r"
 printf 'plain text\n'
 printf '\033[31mred\033[0m \033[32mgreen\033[0m \033[34mblue\033[0m\n'
 printf '\033[38;2;255;128;0mtruecolor orange\033[0m\n'
@@ -25,14 +26,14 @@ printf '\342\224\224\342\224\200\342\224\264\342\224\200\342\224\230\n'
 printf 'wide: \346\274\242\345\255\227 emoji: \360\237\221\215\n'
 for i in 1 2 3; do printf 'stream %s\n' $i; done
 printf 'FIXTURE-DONE\n'
-"#;
+";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let command = std::env::args().nth(1).unwrap_or_else(|| "/bin/sh".to_string());
     let size = TerminalSize::new(80, 24, 8, 16);
 
     let mut term = GhosttyTerminal::spawn(
-        TerminalConfig::command(&command, size).env("PS1", "").env("LC_ALL", "C.UTF-8"),
+        &TerminalConfig::command(&command, size).env("PS1", "").env("LC_ALL", "C.UTF-8"),
     )?;
 
     term.send(TerminalInput::Text(SCRIPT.to_string()))?;
@@ -71,10 +72,11 @@ fn print_snapshot(snap: &Snapshot) {
                 line.push(' ');
                 continue;
             }
-            line.push_str(&format!(
+            let _ = write!(
+                line,
                 "\x1b[38;2;{};{};{}m\x1b[48;2;{};{};{}m",
                 cell.fg.r, cell.fg.g, cell.fg.b, cell.bg.r, cell.bg.g, cell.bg.b
-            ));
+            );
             if cell.style.bold {
                 line.push_str("\x1b[1m");
             }

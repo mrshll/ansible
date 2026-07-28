@@ -21,14 +21,39 @@ publish = false
 # Two crates opt out in their own `[lints]` rather than inheriting these:
 # `ansible-terminal` binds a C library, so `unsafe_code = "forbid"` cannot hold
 # there (and `forbid`, unlike `deny`, cannot be relaxed per-item), and
-# `ansible-spike-a` reaches the same FFI surface through GTK. Both still run
-# `clippy::all`. See docs/adr/0001-terminal-composition-model.md.
+# `ansible-spike-a` reaches the same FFI surface through GTK. Cargo has no
+# partial inheritance, so those two restate this block verbatim with
+# `unsafe_code` relaxed — keep the three copies in step.
+# See docs/adr/0001-terminal-composition-model.md.
 [workspace.lints.rust]
 unsafe_code = "forbid"
+# Warn-by-default in edition 2024; denied here so an `unsafe fn` can never
+# become an implicit unsafe scope for its whole body.
+unsafe_op_in_unsafe_fn = "deny"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
+# The soundness set. `pedantic` already contains the five `cast_*`/`ptr_as_ptr`
+# lints, but they are the reason this repo lints at all — a silent truncation in
+# the VT grid or a sign flip in a PTY ioctl is exactly the bug class that does
+# not announce itself — so they are named explicitly. That way a future
+# toolchain bump that reshuffles `pedantic` cannot quietly drop one, and the
+# contract stays readable next to the code it governs.
+#
+# `undocumented_unsafe_blocks` is the genuinely additive one (it lives in
+# `restriction`, not `pedantic`): every `unsafe` block carries a SAFETY comment
+# stating the invariant it relies on.
+#
+# scripts/lint.sh promotes all of these to errors with `-D warnings`. The fix is
+# always an explicit conversion — `try_into`, `From`, or a documented clamp —
+# never a wider `as`.
+cast_possible_truncation = "warn"
+cast_possible_wrap = "warn"
+cast_precision_loss = "warn"
+cast_sign_loss = "warn"
+ptr_as_ptr = "warn"
+undocumented_unsafe_blocks = "warn"
 
 [workspace.dependencies]
 anyhow = "1.0.104"

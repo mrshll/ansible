@@ -22,12 +22,24 @@ bindgen = "0.72.1"
 
 # Not inheriting the workspace lints: this crate is a C binding, so the
 # workspace's `unsafe_code = "forbid"` cannot apply. Unsafe is confined to
-# `sys.rs` (generated) and the thin wrappers in `vt/`, each with a SAFETY note.
+# `sys.rs` (generated) and the thin wrappers in `vt/`, each with a SAFETY note —
+# `clippy::undocumented_unsafe_blocks` below is what actually holds us to that.
+#
+# Otherwise this is the workspace block from the root Cargo.toml, restated
+# because Cargo cannot inherit part of a `[lints]` table. Keep them in step.
 [lints.rust]
 unsafe_code = "allow"
+unsafe_op_in_unsafe_fn = "deny"
 
 [lints.clippy]
 all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+cast_possible_truncation = "warn"
+cast_possible_wrap = "warn"
+cast_precision_loss = "warn"
+cast_sign_loss = "warn"
+ptr_as_ptr = "warn"
+undocumented_unsafe_blocks = "warn"
 
 [[example]]
 name = "vt-fixture"

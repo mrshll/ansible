@@ -85,6 +85,42 @@ cargo test -p ansible-hooks                    # 33 tests, incl. fixture replay
 scripts/capture-hook-payloads.sh               # re-record the fixtures
 ```
 
+## Development
+
+One-time setup per clone, which points git at the versioned hooks in
+`.githooks/`:
+
+```bash
+scripts/install-hooks.sh
+```
+
+After that, `scripts/lint.sh` is the definition of a clean tree, and the
+pre-commit hook and CI both run exactly it — there is one bar and no way for
+local and CI to disagree.
+
+```bash
+scripts/lint.sh          # rustfmt --check, then clippy over every target
+scripts/lint.sh --fix    # apply the mechanical fixes, then re-check
+git commit --no-verify   # bypass the hook once (CI still runs it)
+```
+
+Every clippy warning is an error in `lint.sh` while staying a warning during a
+normal `cargo build`, so iteration stays quiet without letting a warning reach
+`main`. The lint set itself lives in the `[lints]` tables in `Cargo.toml`:
+`clippy::all` and `clippy::pedantic` everywhere, plus an explicit soundness set
+— the `cast_*` lints, `ptr_as_ptr`, `undocumented_unsafe_blocks`, and
+`unsafe_op_in_unsafe_fn`. `unsafe_code` is `forbid` outside the two crates that
+bind C, and those two carry `undocumented_unsafe_blocks` to hold every `unsafe`
+block to a stated invariant. `rust-toolchain.toml` pins the toolchain, because
+`-D warnings` against a moving rustfmt and clippy is a version lottery.
+
+Two things worth knowing about the hook. It lints the whole workspace rather
+than just the staged files, because rustfmt and clippy are not per-file tools —
+so a partial `git add` can pass the hook on the strength of unstaged work, and CI
+is the real backstop. And `cargo fmt` only reaches files the module tree
+declares, so a new `.rs` file no `mod` mentions is invisible to both tools until
+it is wired in.
+
 ## Intended stack
 
 | Layer | Choice |

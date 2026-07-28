@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A newer push to the same branch makes the in-flight run irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Deliberately no `RUSTFLAGS: -Dwarnings` here: RUSTFLAGS reaches dependency
+  # compilation, so a warning in someone else's crate would fail our build.
+  # `cargo clippy -- -D warnings` in scripts/lint.sh applies only to workspace
+  # crates, which is the scope we actually mean.
+
+jobs:
+  lint:
+    # Pinned rather than ubuntu-latest: webkit2gtk-4.1 is what Tauri v2 links
+    # against, and which Ubuntu ships it is not something to discover mid-release.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # Tauri v2 on Linux is GTK3 + WebKitGTK 4.1; the terminal surface is a GTK3
+      # widget drawn with Cairo and Pango. libclang is for bindgen — it needs
+      # Clang's builtin headers as well as the library, which is why this is
+      # libclang-dev and not the libclang1 runtime package. Same list
+      # scripts/check-spike-a-prerequisites.sh checks for.
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libcairo2-dev \
+            libpango1.0-dev \
+            libclang-dev
+
+      # rust-toolchain.toml pins the channel and the rustfmt/clippy components,
+      # so rustup resolves the same toolchain here as on a developer machine.
+      # `rustup show` is what forces the install before anything needs it.
+      - name: Install Rust toolchain
+        run: |
+          rustup show
+          cargo --version
+          cargo clippy --version
+          cargo fmt --version
+
+      # libghostty-vt is a ~5 minute Zig build pinned to one Ghostty revision, so
+      # it is cached on the scripts that define it. Without the native library the
+      # terminal crate compiles to its contract types only and ansible-spike-a
+      # does not build at all — which would leave almost everything this workflow
+      # exists to lint uncompiled and therefore unlinted.
+      - name: Cache libghostty-vt
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor/libghostty-vt
+            vendor/ghostty-src
+            vendor/zig-0.16.0
+          key: libghostty-vt-${{ runner.os }}-${{ hashFiles('scripts/build-libghostty-vt.sh', 'scripts/seed-zig-cache.sh') }}
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-
+
+      - name: Build libghostty-vt
+        run: scripts/build-libghostty-vt.sh
+
+      # The same script the pre-commit hook runs: fmt --check, then clippy over
+      # every target at -D warnings. One entrypoint means local and CI cannot
+      # drift apart.
+      - name: Lint
+        run: scripts/lint.sh
+
+      - name: Test
+        run: cargo test --workspace

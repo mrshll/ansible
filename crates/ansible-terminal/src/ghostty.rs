@@ -61,7 +61,15 @@ enum ReadResult {
 }
 
 impl GhosttyTerminal {
-    pub fn spawn(config: TerminalConfig) -> Result<Self> {
+    /// Spawn the child under a new PTY and start the reader thread.
+    ///
+    /// # Errors
+    /// [`Error::InvalidSize`] if `config.size` has a zero dimension,
+    /// [`Error::Pty`] if the PTY cannot be opened or the command cannot be
+    /// spawned, [`Error::Vt`] if libghostty fails to allocate the terminal,
+    /// render, or encoder state, or [`Error::Io`] if the reader thread cannot
+    /// be started.
+    pub fn spawn(config: &TerminalConfig) -> Result<Self> {
         let (write_pty_tx, write_pty) = channel();
         let (title_tx, titles) = channel();
         let (bell_tx, bells) = channel();
@@ -72,7 +80,7 @@ impl GhosttyTerminal {
             TerminalCallbacks { write_pty: write_pty_tx, title: title_tx, bell: bell_tx },
         )?;
 
-        let (pty, mut reader) = Pty::spawn(&config)?;
+        let (pty, mut reader) = Pty::spawn(config)?;
         let (incoming_tx, incoming) = bounded(OUTPUT_QUEUE_DEPTH);
 
         let handle = thread::Builder::new().name("ansible-pty-read".into()).spawn(move || {
@@ -115,6 +123,11 @@ impl GhosttyTerminal {
     ///
     /// Returns the number of byte chunks consumed. Callers drive this from
     /// their own loop: a GUI from a frame tick, a test from a poll loop.
+    ///
+    /// # Errors
+    /// [`Error::Pty`] or [`Error::Io`] if a reply to a terminal query cannot be
+    /// written back to the PTY. Malformed output never errors: the VT parser
+    /// treats the byte stream as untrusted by definition.
     pub fn pump(&mut self) -> Result<usize> {
         let mut chunks = 0;
         let mut damaged = false;
@@ -179,6 +192,10 @@ impl GhosttyTerminal {
     /// A PTY gives no completion signal, so anything that waits on child output
     /// has to poll. Hosts with an event loop call [`pump`](Self::pump) from a
     /// frame tick instead; this exists for headless drivers and tests.
+    ///
+    /// # Errors
+    /// Whatever [`pump`](Self::pump) returns; the loop stops at the first error
+    /// rather than spinning to the deadline.
     pub fn pump_until(
         &mut self,
         timeout: Duration,
@@ -198,12 +215,17 @@ impl GhosttyTerminal {
     }
 
     /// Pump until the visible screen satisfies `matches`.
+    ///
+    /// # Errors
+    /// Whatever [`pump`](Self::pump) returns. A snapshot that fails to render is
+    /// treated as "not matching yet" rather than as an error, so a transient
+    /// render failure does not abort the wait.
     pub fn wait_for_screen(
         &mut self,
         timeout: Duration,
         matches: impl Fn(&Snapshot) -> bool,
     ) -> Result<bool> {
-        self.pump_until(timeout, |term| term.snapshot().map(|s| matches(&s)).unwrap_or(false))
+        self.pump_until(timeout, |term| term.snapshot().is_ok_and(|s| matches(&s)))
     }
 
     fn finish(&mut self) {
@@ -221,12 +243,17 @@ impl GhosttyTerminal {
     /// Any non-zero value means the transcript for this session has a gap and
     /// cannot be treated as byte-exact. Callers that need byte-exactness must
     /// check this rather than assume delivery.
+    #[must_use]
     pub fn dropped_output_bytes(&self) -> u64 {
         self.dropped_output_bytes
     }
 
     /// Bytes a given input would put on the wire, without sending them.
     /// Exposed for tests and for latency measurement.
+    ///
+    /// # Errors
+    /// [`Error::Vt`] if libghostty fails to encode a key event. The text, raw,
+    /// paste, and focus forms cannot fail.
     pub fn encode(&mut self, input: &TerminalInput) -> Result<Vec<u8>> {
         Ok(match input {
             TerminalInput::Key(key) => self.encoder.encode(&mut self.terminal, key)?,
@@ -279,7 +306,7 @@ impl TerminalBackend for GhosttyTerminal {
     }
 
     fn shutdown(&mut self) -> Result<()> {
-        self.pty.kill()?;
+        self.pty.kill();
         self.exited = true;
 
         // Detach rather than join. The reader thread can be parked in read() on
@@ -296,6 +323,6 @@ impl TerminalBackend for GhosttyTerminal {
 
 impl Drop for GhosttyTerminal {
     fn drop(&mut self) {
-        let _ = self.pty.kill();
+        self.pty.kill();
     }
 }

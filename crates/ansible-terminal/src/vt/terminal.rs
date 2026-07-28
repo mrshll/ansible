@@ -36,6 +36,12 @@ pub struct Terminal {
 unsafe impl Send for Terminal {}
 
 impl Terminal {
+    /// Create a terminal and install the callbacks it reports through.
+    ///
+    /// # Errors
+    /// [`Error::InvalidSize`] if `size` has a zero dimension, or [`Error::Vt`]
+    /// if libghostty rejects the allocation, the callback installation, the
+    /// scrollback limit, or the initial resize.
     pub fn new(
         size: TerminalSize,
         scrollback_rows: u32,
@@ -49,7 +55,7 @@ impl Terminal {
         // SAFETY: `raw` is a valid out-pointer; a null allocator selects the
         // library default.
         check("ghostty_terminal_new", unsafe {
-            sys::ghostty_terminal_new(std::ptr::null(), &mut raw, size.cols, size.rows)
+            sys::ghostty_terminal_new(std::ptr::null(), &raw mut raw, size.cols, size.rows)
         })?;
 
         let mut term = Self { raw, size, callbacks: Box::new(callbacks) };
@@ -60,7 +66,7 @@ impl Terminal {
     }
 
     fn install_callbacks(&mut self) -> Result<()> {
-        let userdata = &mut *self.callbacks as *mut TerminalCallbacks as *mut c_void;
+        let userdata = (&raw mut *self.callbacks).cast::<c_void>();
         // SAFETY: userdata outlives the terminal (both are owned by `self` and
         // the terminal is freed first in `Drop`).
         unsafe {
@@ -108,7 +114,7 @@ impl Terminal {
                 sys::ghostty_terminal_set(
                     self.raw,
                     sys::GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_LINES,
-                    &rows as *const usize as *const c_void,
+                    (&raw const rows).cast::<c_void>(),
                 ),
             )
         }
@@ -139,6 +145,12 @@ impl Terminal {
         unsafe { sys::ghostty_terminal_vt_write(self.raw, data.as_ptr(), data.len()) };
     }
 
+    /// Change the grid dimensions, reflowing existing content.
+    ///
+    /// # Errors
+    /// [`Error::InvalidSize`] if `size` has a zero dimension, or [`Error::Vt`]
+    /// if libghostty rejects the resize. The recorded size is left unchanged
+    /// unless the resize succeeds.
     pub fn resize(&mut self, size: TerminalSize) -> Result<()> {
         if !size.is_valid() {
             return Err(Error::InvalidSize { cols: size.cols, rows: size.rows });
@@ -148,6 +160,7 @@ impl Terminal {
         Ok(())
     }
 
+    #[must_use]
     pub fn size(&self) -> TerminalSize {
         self.size
     }
@@ -157,7 +170,7 @@ impl Terminal {
         let mut enabled = false;
         // SAFETY: `enabled` is a valid out-pointer for a bool.
         let result = unsafe {
-            sys::ghostty_terminal_mode_get(self.raw, mode as sys::GhosttyMode, &mut enabled)
+            sys::ghostty_terminal_mode_get(self.raw, mode as sys::GhosttyMode, &raw mut enabled)
         };
         result == sys::GHOSTTY_SUCCESS && enabled
     }
@@ -180,7 +193,13 @@ impl Drop for Terminal {
 /// # Safety
 /// `userdata` must be the pointer installed by `install_callbacks`.
 unsafe fn callbacks<'a>(userdata: *mut c_void) -> Option<&'a TerminalCallbacks> {
-    (!userdata.is_null()).then(|| unsafe { &*(userdata as *const TerminalCallbacks) })
+    (!userdata.is_null()).then(|| {
+        // SAFETY: per the contract above, `userdata` is the pointer to the
+        // `Box<TerminalCallbacks>` that `install_callbacks` handed to
+        // libghostty. That box is owned by the `Terminal` and dropped only
+        // after `ghostty_terminal_free`, so it is live for every callback.
+        unsafe { &*userdata.cast::<TerminalCallbacks>() }
+    })
 }
 
 unsafe extern "C" fn on_write_pty(
@@ -189,27 +208,40 @@ unsafe extern "C" fn on_write_pty(
     data: *const u8,
     len: usize,
 ) {
+    // SAFETY: libghostty hands back the userdata installed by
+    // `install_callbacks`, which is exactly what `callbacks` requires.
     let Some(cb) = (unsafe { callbacks(userdata) }) else { return };
     if data.is_null() || len == 0 {
         return;
     }
+    // SAFETY: non-null and `len` bytes long, both just checked. libghostty owns
+    // the buffer only for the duration of this call, hence the copy.
     let bytes = unsafe { std::slice::from_raw_parts(data, len) }.to_vec();
     let _ = cb.write_pty.send(bytes);
 }
 
 unsafe extern "C" fn on_title_changed(terminal: sys::GhosttyTerminal, userdata: *mut c_void) {
+    // SAFETY: libghostty hands back the userdata installed by
+    // `install_callbacks`, which is exactly what `callbacks` requires.
     let Some(cb) = (unsafe { callbacks(userdata) }) else { return };
+    // SAFETY: `GhosttyString` is a `#[repr(C)]` pointer/length pair, for which
+    // all-zeroes is the valid empty value. The null check below rejects it if
+    // the call below leaves it untouched.
     let mut s: sys::GhosttyString = unsafe { std::mem::zeroed() };
+    // SAFETY: `terminal` is the live handle libghostty is calling us from, and
+    // `s` is a valid out-pointer for the type `DATA_TITLE` writes.
     let result = unsafe {
         sys::ghostty_terminal_get(
             terminal,
             sys::GHOSTTY_TERMINAL_DATA_TITLE,
-            &mut s as *mut sys::GhosttyString as *mut c_void,
+            (&raw mut s).cast::<c_void>(),
         )
     };
     if result != sys::GHOSTTY_SUCCESS || s.ptr.is_null() || s.len == 0 {
         return;
     }
+    // SAFETY: the call succeeded and `s` is non-null with `s.len` bytes, all
+    // checked above. The string is owned by the terminal and outlives this call.
     let bytes = unsafe { std::slice::from_raw_parts(s.ptr, s.len) };
     if let Ok(title) = std::str::from_utf8(bytes) {
         let _ = cb.title.send(title.to_string());
@@ -217,6 +249,8 @@ unsafe extern "C" fn on_title_changed(terminal: sys::GhosttyTerminal, userdata: 
 }
 
 unsafe extern "C" fn on_bell(_terminal: sys::GhosttyTerminal, userdata: *mut c_void) {
+    // SAFETY: libghostty hands back the userdata installed by
+    // `install_callbacks`, which is exactly what `callbacks` requires.
     if let Some(cb) = unsafe { callbacks(userdata) } {
         let _ = cb.bell.send(());
     }

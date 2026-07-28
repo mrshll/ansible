@@ -4,6 +4,10 @@
 //! guessed. Safe wrappers live in [`crate::vt`].
 
 #![allow(non_upper_case_globals, non_camel_case_types, non_snake_case)]
-#![allow(dead_code, clippy::all)]
+#![allow(dead_code, clippy::all, clippy::pedantic)]
+// Doc comments here are C comments carried over verbatim from the headers, and
+// the layout tests bindgen emits do their own casting. Linting generated text we
+// do not write would only teach us to stop reading the output.
+#![allow(clippy::undocumented_unsafe_blocks)]
 
 include!(concat!(env!("OUT_DIR"), "/libghostty_vt.rs"));
