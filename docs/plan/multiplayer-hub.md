@@ -25,7 +25,7 @@ a settled fact. Overturning one is cheap now and expensive after Phase 1.
 | # | Decision | Chosen | If you choose otherwise |
 |---|---|---|---|
 | A1 | Transcript fidelity | **Both** raw PTY archive *and* a derived structured event index. Viewer defaults to structured, can drop into terminal replay. | Raw-only makes transcripts opaque blobs — no search, no grid status independent of hooks, no summarization, awkward reflow. Structured-only loses rendered diffs, spinners, and anything TUI-native, and makes you fully dependent on hook coverage. |
-| A2 | Live-tail transport | **Aim for sub-second via a Worker-hosted Durable Object relay**, while every frame is also batched to R2. Put relay and cursor-follow behind one `ChunkSource`; Spike B may select R2 cursor-follow if relay complexity or cost is disproportionate. | Starting with 1–3 second R2 cursor-follow is simpler and gives backfill and live viewing one path, but does not meet the requested real-time feel. |
+| A2 | Live-tail transport | **Settled by Spike B: keep the relay** ([ADR 0002](../adr/0002-live-tail-transport.md)). A Worker-hosted Durable Object relay carries ephemeral frames; every byte is also chunked to R2 and followed by the cursor, behind one `ChunkSource`. | Cursor-follow alone was measured at p95 1.3–1.6 s *on loopback* against the relay's 3 ms, and is worst on sparse output — which is what a session awaiting approval looks like. It is slowest precisely when the grid must be fastest, so it stays as the backfill and recovery path only. See [deployed-round-trip.md §4](../spikes/deployed-round-trip.md). |
 | A3 | Capture scope | **In-app launcher only** for Phase 1, with capture/registration factored as a local service the app happens to host. | Capturing *any* Claude Code session on the machine is a much better adoption story but you lose PTY ownership: you get hook events and little else, plus a daemon with its own lifecycle, auth, and update path. See open question #6 — this is the assumption most likely to be wrong. |
 | A4 | Sharing default | **Transcript-private by default; the owner explicitly toggles sharing.** Every session can still publish a title-only directory card and presence, but output stays in the local spool until shared. Sharing uploads the session so far and then starts its live relay. | Org-visible-by-default creates a fuller grid, but violates the requested consent model and risks sending sensitive output before the owner notices. Uploading private bytes with access controls is operationally simpler, but turns an authorization bug into a disclosure. |
 
@@ -74,6 +74,7 @@ ansible/
 │  ├─ ansible-terminal/            # libghostty-rs wrapper. NO Tauri, NO hub dependency
 │  ├─ ansible-capture/             # bytes in → redacted, ordered chunks out. Pure, golden-tested
 │  ├─ ansible-hooks/               # hook payload types + status derivation, no I/O
+│  ├─ ansible-transport/           # publishes chunks to the Worker; rebuilds them on the far side
 │  └─ ansible-hub-client/          # typed SpacetimeDB client wrapper (app + integration tests)
 ├─ packages/
 │  └─ protocol/                    # wire types SpacetimeDB does NOT own: chunk envelope,
@@ -116,10 +117,17 @@ with two sources — that is what makes feature #4 nearly free once #1 works.
 **`ChunkSource` is the live-tail boundary.** `RelaySource` consumes ephemeral
 frames over a Durable Object WebSocket; `CursorFollowSource` retrieves durable
 chunks as the SpacetimeDB cursor advances. `LiveChunkSource` joins them: it
-backfills through the cursor, tails the relay, deduplicates by sequence, and
-falls back to cursor-follow after a disconnect. The viewer cannot tell which
-path supplied a frame. This seam makes the real-time target reversible if Spike
-B shows that the relay is too complex or expensive.
+backfills through the cursor, tails the relay, and falls back to cursor-follow after
+a disconnect. The viewer cannot tell which path supplied a frame.
+
+One correction from Spike B, which built this join in
+`crates/ansible-transport`: it **cannot deduplicate by sequence**. Frames and chunks
+are not two views of the same units — a frame is an arbitrary byte range, a chunk is
+a sequence, and a frame can deliver half of a chunk that arrives whole a moment
+later. The join instead tracks a single `received_through` byte offset and splices
+every message by absolute offset, which makes "already have it", "take only the new
+tail", and "this would leave a gap" fall out as three cases of one comparison rather
+than three special cases.
 
 ### Two SpacetimeDB connections, not one
 
@@ -153,7 +161,7 @@ The module is the schema source of truth; TS bindings are generated from it
 |---|---|---|---|
 | `member` | `identity` | github_login/id, display_name, avatar_url, role, joined_at, last_seen | O(team) |
 | `session_listing` | `session_id` | owner, title, coarse status, started_at, ended_at — the title-only org directory card that exists even while output is private | O(sessions) |
-| `session` | `session_id` | owner, host_label, repo, branch, status detail, model_label, last_event_at, exit_reason, `visibility`, transcript_key, **chunk_cursor**, **byte_cursor**, event_count | O(sessions) |
+| `session` | `session_id` | owner, host_label, repo, branch, status detail, model_label, last_event_at, exit_reason, `visibility`, **`shared_with_org`**, transcript_key, **chunk_cursor**, **byte_cursor**, event_count | O(sessions) |
 | `session_status_history` | auto id | session_id, status, at — **transitions only** | O(transitions), pruned |
 | `presence` | `connection_id` | identity, session_id (`None` = on the grid), `focus`, since | O(live viewers) |
 | `mention` | auto id | session_id, from, to, body, `anchor`, created_at, read_at, delivered_at | O(mentions) |
@@ -176,12 +184,28 @@ free.
 grid renders verbatim. Resist making it structured until you know what the hooks
 actually give you (Spike B).
 
+`shared_with_org` is a redundant boolean mirror of `visibility == Org`, and exists
+because **RLS cannot compare an enum column to a literal** — Maincloud rejects
+`WHERE visibility = 'Org'` outright. The most important visibility rule in the
+system is therefore keyed on the boolean. Both fields are written by
+`set_session_visibility` in one transaction; nothing else may write either.
+
 ### Enums
 
 - `SessionStatus`: `Starting` · `Working` · `AwaitingInput` · `AwaitingApproval`
-  · `Idle` · `Done` · `Failed` · `Detached`
+  · `Done` · `Failed` · `Detached`
 - `Visibility`: `Org` · `Private` · `Granted`
 - `Focus`: `Grid` · `Session` · `Replay`
+- `StatusSource`: `Hook` · `Terminal` · `Supervisor` · `Reaper`
+
+`Idle` was dropped: Spike B found nothing can set it. `Stop` gives `AwaitingInput`,
+and idle is that state plus elapsed time, which the viewer derives from
+`last_event_at`. Carrying a status no producer can set is worse than not having it.
+
+`StatusSource` exists because the statuses have non-interchangeable sources, and the
+reducer enforces it: `AwaitingApproval` may only come from `Terminal` (hooks cannot
+distinguish it from a slow tool) and `Failed` only from `Supervisor`
+(`SessionEnd.reason` was `"other"` on a clean exit).
 
 Splitting `AwaitingApproval` from `AwaitingInput` is deliberate and worth a
 whole status: approval is the interruption a teammate can actually resolve, and
@@ -192,13 +216,14 @@ it's the highest-value thing the grid can surface.
 **Lifecycle — agent connection (Rust core)**
 - `register_session(...)` — atomically creates the title-only listing and private detail row; idempotent on `session_id` so a crash-restart re-attaches instead of duplicating.
 - `set_session_visibility(session_id, visibility)` — owner-only opt-in/opt-out; revokes new relay/archive reads immediately when made private.
-- `update_session_status(session_id, status, detail)` — owner-checked; writes a history row only on transition. Hottest reducer in the system; must tolerate being called far more often than it changes anything.
+- `update_session_status(session_id, status, detail, source)` — owner-checked; writes a history row only on transition. Hottest reducer in the system; must tolerate being called far more often than it changes anything. Rejects `AwaitingApproval` from any `source` but `Terminal`, and `Failed` from any but `Supervisor`, so the hook path cannot ship a guess.
 - `set_session_title(session_id, title)` — once the first prompt lands.
 - `heartbeat_session(session_id)` — liveness.
 - `close_session(session_id, exit_reason)` — final status, ended_at, final cursor.
 
 **Archive — called by the Worker, never the app**
 - `advance_transcript_cursor(session_id, chunk_cursor, byte_cursor, event_count)` — strictly monotonic; rejects any value ≤ current. This single field is the live-tail signal every viewer follows. Keeping it Worker-only is what makes the cursor mean "durably in R2" rather than "a client claimed so."
+- "Worker-only" is mechanical, not a convention: the caller must equal `hub_config.worker_identity`, and a hub with none configured refuses cursors outright rather than trusting whoever asked. `set_worker_identity(identity)` is admin-only and deliberately separate from `set_hub_config`, so granting the cursor-writing capability is its own audited act.
 
 **Presence — viewer connection (webview)**
 - `set_focus(session_id: Option<String>, focus)` · `clear_focus()`
@@ -220,11 +245,22 @@ it's the highest-value thing the grid can surface.
 
 Use `#[client_visibility_filter]` RLS so only `session_listing` reaches the org
 for private sessions, while `session` reaches the owner and authorized viewers;
-`mention` rows reach only sender and recipient. **Verify RLS
-support and expressiveness on Maincloud early** — if the rules can't be
-expressed there, reads must be funneled through a filtering intermediary and
-the architecture shifts noticeably. This is a correctness dependency, not a
-nicety.
+`mention` rows reach only sender and recipient.
+
+**Verified on deployed Maincloud by Spike B: the rules are enforced**, per-row and
+per-identity, so reads do *not* need a filtering intermediary
+([ADR 0003](../adr/0003-read-authorization.md)). Note that the 2.7.0
+bindings claim the opposite (`// TODO: RLS filters are currently unimplemented, and
+are not enforced.`) and that comment is stale; `scripts/probe-rls.sh` is the standing
+evidence, asserted from the viewpoint of an identity that owns nothing. Three
+constraints shape the schema around it:
+
+- **A filtered table must be `public`.** RLS on a `private` table is a publish-time
+  error, so `public` means "subscribable, then filtered", not "world-readable".
+- **No enum-to-literal comparison** — hence `shared_with_org`, above.
+- **The module owner bypasses RLS.** `Private` separates teammates from each other,
+  not a teammate from whoever holds the publish credential. Say so out loud when
+  describing the consent model.
 
 ---
 
@@ -376,6 +412,13 @@ change — *which is the actual point of running this spike first.*
 
 ### Spike B — real session round-tripped through SpacetimeDB + R2 (2–3 days)
 
+> **Done.** [capture-round-trip.md](../spikes/capture-round-trip.md) (capture and
+> redaction), [hook-coverage.md](../spikes/hook-coverage.md) (status signal), and
+> [deployed-round-trip.md](../spikes/deployed-round-trip.md) (hub on Maincloud,
+> Worker, relay, second-process round trip). Every success criterion below was met;
+> the kill criteria were not triggered. A2 is settled in favour of the relay, and the
+> schema changes the spike forced are already folded into §2 above.
+
 No UI polish, no auth beyond a hardcoded token, no libghostty (use
 `portable-pty`). Spawn `claude` under a PTY, tee bytes, install the hook set,
 run a genuinely long task with real tool approvals, chunk and upload through a
@@ -415,12 +458,23 @@ second unreliable transport behind the UI.
    grid?** The grid *is* the product. If `AwaitingInput` can't be detected
    reliably you fall back to inferring from byte patterns and idle timers, which
    is fragile and pushes semantics back into the capture path. → Spike B.
+   → **Answered: good enough, with one exception.** `Starting`, `Working`,
+   `AwaitingInput`, and `Done` come from hooks cleanly. `AwaitingApproval` does not
+   and cannot — a denied tool and a slow tool produce identical hook sequences — so
+   it comes from the terminal snapshot the app already owns, and
+   `update_session_status` refuses it from any other source.
 
 3. **What is the verified path from GitHub OAuth to SpacetimeDB `Identity`, and
    can RLS express the visibility rules?** Determines whether the Worker becomes
    a mandatory trusted intermediary for *all* writes (much more Worker, much less
    direct-to-SpacetimeDB), and whether `Private` is genuinely enforceable or
    merely cosmetic.
+   → **The RLS half is answered: yes, enforced**, with the three constraints in §2,
+   and reads need no intermediary. The OAuth half is untouched and still gates
+   Phase 1 — `upsert_member` currently trusts client-asserted GitHub claims, which
+   must not ship. The two halves turn out to be less coupled than this question
+   assumed: because RLS is real, the trust path only has to establish *who you are*,
+   not also *what you may read*.
 
 4. **Who owns redaction, and what is the failure mode when a rule misses?**
    Client-side-only means a missed secret is durable in R2 and org-readable.
@@ -458,6 +512,9 @@ second unreliable transport behind the UI.
     graceful degradation to local-only during an outage, cost at this scale. Low
     design impact, high project risk.
 
-Questions 1–3 are spike or investigation work and should gate Phase 1.
+Questions 1–3 are spike or investigation work and should gate Phase 1. **1 and 2 are
+now answered, and 3 only in its RLS half** — the GitHub-OAuth-to-`Identity` trust
+path is the one remaining spike-shaped blocker, and it is the last thing gating
+Phase 1.
 Questions 4–5 need a policy decision from the team, not an experiment. Questions
 6–10 can be answered during Phase 1 without stalling it.

@@ -1,15 +1,20 @@
 # Spike B — transcript capture round trip
 
-**Status:** partial. The local half is done and verified: `crates/ansible-capture`
-exists, byte-exact reconstruction is a golden test, and the redaction ruleset is
-derived from a recorded session rather than guessed. The deployed half — a real
-Worker, real R2, a real Maincloud module, and end-to-end relay latency — is
-**blocked on credentials and tooling not present in this environment** (see
-[§6](#6-what-is-blocked-and-why)).
+**Status:** done. This document covers the **local half**: `crates/ansible-capture`,
+byte-exact reconstruction as a golden test, and a redaction ruleset derived from a
+recorded session rather than guessed.
+
+The deployed half that [§6](#6-what-is-blocked-and-why) below lists as blocked is no
+longer blocked and is no longer outstanding — the `spacetime` CLI is now available,
+and the Worker runs on local `workerd`. See
+[deployed-round-trip.md](deployed-round-trip.md) for the hub module on Maincloud, the
+Worker with R2 and the Durable Object relay, the second-process round trip, and the
+latency numbers that decide assumption A2. §6 is kept as written because it records
+what was and was not established at the time, and what the deployed work was
+therefore able to build against.
 
 The plan calls capture correctness "the one thing in this system with no
-acceptable failure mode." That part is finished and tested. What remains is
-measurement that needs infrastructure.
+acceptable failure mode." That part is finished and tested.
 
 ---
 
@@ -246,9 +251,14 @@ inheriting the workspace's `clippy::pedantic` and `unsafe_code = "forbid"`.
 
 ---
 
-## 6. What is blocked, and why
+## 6. What was blocked, and why
 
-Not attempted, because the environment has neither the tooling nor the
+**Historical.** Every row below is now done — see
+[deployed-round-trip.md](deployed-round-trip.md). Kept because the last row is a
+finding in its own right, and because it records what the deployed half was able to
+build against rather than co-design.
+
+Not attempted at the time, because the environment had neither the tooling nor the
 credentials:
 
 | Blocked | Missing |

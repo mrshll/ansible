@@ -4,8 +4,15 @@ members = [
     "crates/ansible-capture",
     "crates/ansible-hooks",
     "crates/ansible-terminal",
+    "crates/ansible-transport",
     "apps/desktop/src-tauri",
 ]
+
+# The SpacetimeDB module is a wasm32-unknown-unknown cdylib built by
+# `spacetime publish`, not by the host toolchain. Excluding it keeps
+# `cargo test --workspace` and `cargo clippy --workspace` buildable, since the
+# module's bindings do not link for the host target.
+exclude = ["services/hub-module"]
 
 [workspace.package]
 version = "0.1.0"

@@ -1,0 +1,39 @@
+[package]
+name = "ansible-transport"
+description = "Publishes captured chunks to the transcript Worker, and reconstructs them on the other side"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# Depends on the capture crate but never the other way round: capture stays a pure
+# function of (bytes, timestamps, config) with no I/O, and this crate is where all
+# the I/O lives. No terminal crate either — Spike B uses portable-pty directly, so
+# the round trip can be measured without the vendored libghostty build.
+[dependencies]
+ansible-capture = { path = "../ansible-capture" }
+anyhow.workspace = true
+base64 = "0.22"
+portable-pty.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror.workspace = true
+# Blocking HTTP and WebSocket clients. The publisher and viewer are each a small
+# loop over a PTY or a socket, so an async runtime would add a dependency and a
+# scheduler without removing any code.
+tungstenite = "0.30"
+# `json` is not in ureq's default features, and both the frame publish and the
+# viewer's status poll need it.
+ureq = { version = "3.3", features = ["json"] }
+
+[lints]
+workspace = true
+
+[[example]]
+name = "relay-publish"
+path = "examples/relay_publish.rs"
+
+[[example]]
+name = "relay-view"
+path = "examples/relay_view.rs"

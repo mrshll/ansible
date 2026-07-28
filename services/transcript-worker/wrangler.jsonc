@@ -1,0 +1,38 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ansible-transcript-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-01",
+  // The relay's Rust-side harness and the viewer both speak plain fetch and
+  // WebSocket, so no nodejs_compat is needed.
+
+  "durable_objects": {
+    "bindings": [{ "name": "SESSION_RELAY", "class_name": "SessionRelay" }]
+  },
+
+  // SQLite-backed, because the relay's ordering state must survive eviction.
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SessionRelay"] }],
+
+  "r2_buckets": [
+    {
+      "binding": "TRANSCRIPTS",
+      // Local `wrangler dev` simulates this on disk and never contacts
+      // Cloudflare. Deploying would create a real bucket, which is a separate,
+      // explicitly-approved step — see README.md.
+      "bucket_name": "ansible-transcripts-spike"
+    }
+  ],
+
+  "vars": {
+    // Spike-grade shared secrets, matching the plan's "no auth beyond a
+    // hardcoded token" for Spike B. Real deployments must set these as secrets
+    // (`wrangler secret put`), never as vars.
+    "PUBLISH_TOKEN": "spike-publish-token",
+    "VIEW_TOKEN": "spike-view-token",
+    "HUB_URL": "https://maincloud.spacetimedb.com",
+    "HUB_DB": "ansible-spike-b",
+    "HUB_TOKEN": ""
+  },
+
+  "observability": { "enabled": true }
+}

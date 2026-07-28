@@ -60,4 +60,27 @@ cargo fmt --all --check
 step 'cargo clippy --workspace --all-targets -- -D warnings'
 cargo clippy --workspace --all-targets -- -D warnings
 
+# The SpacetimeDB module is deliberately *excluded* from the workspace: it is a
+# wasm32 cdylib that does not link for the host target, so `--workspace` above
+# cannot see it. Without this block it would be the one crate in the repo with no
+# lint bar at all — and it is the crate that defines the schema.
+if [[ -d services/hub-module ]]; then
+  step 'hub-module: fmt + clippy (wasm32)'
+  (
+    cd services/hub-module
+    cargo fmt --check
+    cargo clippy --release --target wasm32-unknown-unknown --all-targets -- -D warnings
+  )
+fi
+
+# Likewise the Worker: TypeScript, so `tsc --noEmit` is its equivalent of clippy.
+# Skipped rather than failed when dependencies are not installed, so a Rust-only
+# checkout still lints cleanly.
+if [[ -f services/transcript-worker/node_modules/.package-lock.json ]]; then
+  step 'transcript-worker: tsc --noEmit'
+  (cd services/transcript-worker && npx tsc --noEmit)
+else
+  printf 'transcript-worker: skipped (run `npm install` in services/transcript-worker)\n'
+fi
+
 printf '\033[32mlint: clean\033[0m\n'

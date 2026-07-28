@@ -98,24 +98,42 @@ them).
 
 ### Three things to find out while you are in there
 
-These are W2's inputs, and none of them can be answered from this repo:
+These are W2's inputs. **Two of the three are now answered** — Spike B answered them
+against deployed Maincloud, so only the first is still open. See
+[deployed-round-trip.md §9](../spikes/deployed-round-trip.md#9-identity-a-question-answered-early)
+and [§2](../spikes/deployed-round-trip.md#2-row-level-security-enforced-with-three-constraints).
 
 1. **Can a Maincloud database be configured to trust a third-party JWT issuer**
-   (an issuer URL plus a JWKS endpoint)? This is the single fact
+   (an issuer URL plus a JWKS endpoint)? **Still open, and now the only open one.**
+   This is the single fact
    [W2](phase-1-execution.md#w2--spike-c-identity-and-rls-the-last-gating-question)
    turns on. If yes, our Worker mints tokens and `Identity` derives from
    `(issuer, subject)`, so a GitHub login maps to a stable identity. If no, the
    Worker must intermediate every write and the architecture shifts.
-2. **Can a reducer read claims from the caller's token**, or only `ctx.sender`?
-   `upsert_member_from_token()` is specified to read *verified* claims and never
-   a client-asserted login; if only the identity is available, membership has to
-   be established by a trusted writer instead.
+
+   Half of this is settled: identity *does* derive from `(iss, sub)` —
+   `JwtClaims::identity()` is `Identity::from_claims(issuer, subject)` and it
+   reproduces `ctx.sender` byte for byte on Maincloud. So the mechanism is confirmed
+   and only the *configuration* question remains. It is a console and
+   platform-support question, not a code question.
+2. ~~**Can a reducer read claims from the caller's token**, or only
+   `ctx.sender`?~~ **Answered: yes.** `ctx.sender_auth().jwt()` exposes
+   `issuer()`, `subject()`, `audience()`, and `raw_payload()` for custom claims,
+   all verified by the host before the reducer runs. So
+   `upsert_member_from_token()` can be built as specified; membership does *not*
+   need a trusted writer. Call the deployed `whoami` reducer and read
+   `spacetime logs` to see it. This makes the fix to `upsert_member` a small
+   change to one reducer rather than an architectural shift.
 3. **What are the migration, backup, and pricing terms** at ~10 engineers
    (open question #10)? Note what you find; low design impact, real project
-   risk.
+   risk. Still open.
 
-Write the answers into a comment on the W2 issue or PR. They are the whole
-input to that spike.
+Write the answers into a comment on the W2 issue or PR.
+
+While you are in the console, one operational fact worth confirming, because it
+bounds what the consent model can promise: **the module owner bypasses row-level
+security** and can read every row regardless of visibility. Spike B measured this.
+Check whether Maincloud offers any way to scope or audit that access.
 
 ---
 

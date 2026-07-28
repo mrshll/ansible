@@ -19,7 +19,8 @@ outside the real-time coordination database.
 
 ## Status
 
-Planning and de-risking. Spike A is complete; product code has not started.
+Planning and de-risking. **Both spikes are complete**; product code has not
+started.
 
 - [Architecture plan](docs/plan/multiplayer-hub.md) — repo layout and module
   boundaries, SpacetimeDB schema and reducer surface, session lifecycle data
@@ -27,11 +28,18 @@ Planning and de-risking. Spike A is complete; product code has not started.
 - [Spike A — terminal embedding](docs/spikes/terminal-embedding.md) — **done.**
   libghostty runs a real Claude Code session inside a Tauri window on Linux.
 - [Spike B — transcript capture round trip](docs/spikes/capture-round-trip.md) —
-  **partial.** The capture path is built and byte-exactness is a golden test;
-  the deployed Worker, R2, and Maincloud measurements are still outstanding.
+  **done.** The capture path is built and byte-exactness is a golden test.
 - [Spike B — hook coverage](docs/spikes/hook-coverage.md) — **done.** Hooks can
   drive the grid, except for the one status that matters most.
+- [Spike B — the deployed half](docs/spikes/deployed-round-trip.md) — **done.**
+  Hub module on Maincloud, Worker with R2 and a Durable Object relay, and a
+  second process reconstructing a live session byte for byte. Decides
+  assumption A2 and answers the RLS half of open question #3.
 - [ADR 0001 — terminal composition model](docs/adr/0001-terminal-composition-model.md)
+- [ADR 0002 — live-tail transport](docs/adr/0002-live-tail-transport.md) — keep the
+  relay; cursor-follow is the durable path, and the join splices by byte offset.
+- [ADR 0003 — read authorization](docs/adr/0003-read-authorization.md) — RLS is
+  enforced and is the mechanism; no filtering intermediary.
 
 ### Spike A in one paragraph
 
@@ -60,13 +68,33 @@ through the stored JSONL form, independent of how the PTY split its writes, and
 refuses a gap rather than splicing over one. Redaction was derived by recording a
 real session: vendor-prefix rules alone caught only 4 of 12 planted credentials,
 so named values, URL credentials, JWTs, and PEM blocks became rules too, taking
-coverage to 12 of 12 at 18 MiB/s. Deployed Worker, R2, and relay-latency
-measurements remain blocked on credentials.
+coverage to 12 of 12 at 18 MiB/s.
 
 ```bash
 cargo test -p ansible-capture                                   # 63 tests
 cargo run -p ansible-terminal --example vt-record -- out.raw claude
 cargo run -p ansible-capture --example redact-report -- out.raw  # coverage + gaps
+```
+
+### The deployed half in one paragraph
+
+`services/hub-module` is published to SpacetimeDB Maincloud and
+`services/transcript-worker` runs on local `workerd` with a Durable Object relay and
+R2; `crates/ansible-transport` publishes a real PTY session into them and a second
+process reconstructs it byte for byte. Row-level security **is** enforced on
+Maincloud — the 2.7.0 bindings say it is not, and that comment is stale — though it
+cannot compare an enum column to a literal, which is why `session` carries a
+`shared_with_org` boolean beside its `visibility` enum. Cursor-follow's p95 is
+1.3–1.6 s on loopback against the relay's 3 ms, and it is slowest on sparse output,
+which is exactly what a session awaiting approval looks like, so the relay stays
+(assumption A2). The Worker is deliberately not deployed: that creates Cloudflare
+resources and wants an explicit account decision.
+
+```bash
+scripts/probe-rls.sh                                     # 6 assertions: read visibility
+scripts/probe-hub.sh                                     # 17: cursor, row budget, ownership
+cd services/transcript-worker && npm install && npm run dev &
+scripts/probe-relay.sh                                   # 11: byte-exactness, latency, recovery
 ```
 
 ### Hook coverage in one paragraph

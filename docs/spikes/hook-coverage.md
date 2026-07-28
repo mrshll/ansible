@@ -233,8 +233,14 @@ reports the prompt being *dismissed*.
 
 ## 6. What this leaves for the deployed half
 
-Unchanged and still blocked on credentials: deployed Worker, R2, Maincloud, and
-end-to-end relay latency ([capture-round-trip.md §6](capture-round-trip.md#6-what-is-blocked-and-why)).
+**Done** — the hub module is on Maincloud, the Worker and relay are built, and the
+round trip is measured: [deployed-round-trip.md](deployed-round-trip.md).
+
+Two of §4's consequences are now enforced by the deployed schema rather than only
+written down. `update_session_status` takes a `StatusSource` and **rejects**
+`AwaitingApproval` from the hook path and `Failed` from anything but the supervisor,
+so the ambiguity this document found cannot be papered over by a future caller.
+`Idle` was dropped from `SessionStatus`, per §4's fourth point.
 
 Ready for a full environment, because it is settled here:
 
