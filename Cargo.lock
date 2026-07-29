@@ -80,10 +80,12 @@ dependencies = [
 name = "ansible-terminal"
 version = "0.1.0"
 dependencies = [
+ "ansible-hooks",
  "bindgen",
  "crossbeam-channel",
  "libc",
  "portable-pty",
+ "serde_json",
  "thiserror 2.0.19",
  "tracing",
 ]

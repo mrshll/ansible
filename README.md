@@ -31,6 +31,9 @@ started.
   **done.** The capture path is built and byte-exactness is a golden test.
 - [Spike B — hook coverage](docs/spikes/hook-coverage.md) — **done.** Hooks can
   drive the grid, except for the one status that matters most.
+- [W4 — the `AwaitingApproval` producer](docs/spikes/approval-producer.md) —
+  **done.** The one status hooks cannot give us now has a producer: a real
+  permission prompt reaches the grid 1.3–3.6 ms after it is drawn.
 - [Spike B — the deployed half](docs/spikes/deployed-round-trip.md) — **done.**
   Hub module on Maincloud, Worker with R2 and a Durable Object relay, and a
   second process reconstructing a live session byte for byte. Decides
@@ -109,8 +112,30 @@ that status is taken from a terminal hint instead of guessed from a timer, and t
 API makes that a requirement rather than a convention.
 
 ```bash
-cargo test -p ansible-hooks                    # 33 tests, incl. fixture replay
+cargo test -p ansible-hooks                    # 62 tests, incl. fixture replay
 scripts/capture-hook-payloads.sh               # re-record the fixtures
+```
+
+### The `AwaitingApproval` producer in one paragraph
+
+`ansible_hooks::approval` recognises a real permission prompt in rendered screen
+text, which is the half of the status signal no hook has. Measured against real
+interactive `claude`: a prompt reaches `AwaitingApproval` **1.3–3.6 ms** after it
+is drawn, answering it returns to `Working` in **21–62 ms**, and a tool holding
+its bracket open for 15.1 s never trips it. Detection needs six signals to
+co-occur — five of content plus, crucially, the modal's footer being the *last*
+thing on screen. Content alone is not enough: the review of this change found the
+detector firing on this repository's own documentation, since a fenced example
+contains the whole block. Position is what separates a live modal from a faithful
+description of one. Under-reporting degrades to an honest "working for 2m", while
+over-reporting teaches people to ignore the one status meant to summon them. Running both halves together also found a real bug:
+`Notification` fires ~6 s after the prompt with "Claude needs your permission" and
+was demoting the very status it reported. `PermissionRequest` fires too, once per
+prompt rather than once per tool — a genuine rising edge, though still no event
+reports a prompt being *dismissed*, which is why the terminal stays the producer.
+
+```bash
+scripts/probe-approval.sh                      # 18 assertions against a real session
 ```
 
 ## Development

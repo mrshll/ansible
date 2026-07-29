@@ -20,6 +20,17 @@ tracing.workspace = true
 [build-dependencies]
 bindgen = "0.72.1"
 
+# Example-only, and deliberately a dev-dependency: `approval-probe` drives a real
+# session and feeds both halves of the status signal into one `StatusMachine`,
+# which is the wiring the app will do. Keeping it out of `[dependencies]` means
+# the library still depends on neither the hub nor anything above it, and
+# `ansible-hooks` is pure, so nothing here changes what this crate needs to build.
+[dev-dependencies]
+ansible-hooks = { path = "../ansible-hooks" }
+# Reads the hook log the probe's receiver writes, in the same wrapped shape
+# `ansible-hooks/tests/fixtures/` already uses.
+serde_json = "1"
+
 # Not inheriting the workspace lints: this crate is a C binding, so the
 # workspace's `unsafe_code = "forbid"` cannot apply. Unsafe is confined to
 # `sys.rs` (generated) and the thin wrappers in `vt/`, each with a SAFETY note —
@@ -56,3 +67,7 @@ path = "examples/vt_record.rs"
 [[example]]
 name = "vt-drive"
 path = "examples/vt_drive.rs"
+
+[[example]]
+name = "approval-probe"
+path = "examples/approval_probe.rs"
