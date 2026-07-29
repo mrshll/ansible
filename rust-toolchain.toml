@@ -9,3 +9,8 @@
 # scripts/lint.sh when you do.
 channel = "1.97.1"
 components = ["rustfmt", "clippy"]
+# services/hub-module is a wasm32 cdylib outside the workspace, and scripts/lint.sh
+# clippies it against this target. Declaring it here rather than installing it in CI
+# keeps the toolchain self-describing: `rustup show` provisions the target on a
+# fresh clone and on the runner from the same line.
+targets = ["wasm32-unknown-unknown"]
