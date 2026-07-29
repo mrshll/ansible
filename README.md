@@ -40,6 +40,10 @@ started.
   relay; cursor-follow is the durable path, and the join splices by byte offset.
 - [ADR 0003 — read authorization](docs/adr/0003-read-authorization.md) — RLS is
   enforced and is the mechanism; no filtering intermediary.
+- [Hand raise — asking for help, and routing it](docs/plan/hand-raise.md) —
+  **proposed, not started.** Raise your hand from a session; the grid shows it,
+  and ansible works out who to ping from the files you're in and who wrote them,
+  plus a second person along to learn.
 
 ### Spike A in one paragraph
 

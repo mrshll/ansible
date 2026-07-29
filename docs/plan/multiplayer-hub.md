@@ -507,6 +507,8 @@ second unreliable transport behind the UI.
    flow strongly implies "…and then take over." Input handoff brings input
    authority, conflict, and audit with it. Knowing whether it is on the roadmap
    decides whether the byte stream needs to be bidirectional from day one.
+   [Hand raise](hand-raise.md) is the proposed feature that pushes hardest on
+   this, and on questions #7 and #8 as well.
 
 10. **SpacetimeDB Maincloud operational fit.** Schema migration story, backup,
     graceful degradation to local-only during an outage, cost at this scale. Low
