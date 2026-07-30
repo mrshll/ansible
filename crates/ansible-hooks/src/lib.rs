@@ -12,10 +12,17 @@
 //! is indistinguishable from a slow tool. [`StatusMachine`] therefore takes that
 //! status from a terminal hint instead of inferring it from a timer. See
 //! `docs/spikes/hook-coverage.md`.
+//!
+//! [`approval`] is the producer of that hint: it recognises a real permission
+//! prompt in rendered screen text, so the two halves of the status signal —
+//! hooks for the noun, the terminal for the verb — are both in this crate and
+//! both replayed against recordings of a real session.
 
+pub mod approval;
 pub mod event;
 pub mod status;
 
+pub use approval::{ApprovalOption, ApprovalPrompt};
 pub use event::{
     Common, HookEvent, Notification, PostToolUse, PreToolUse, SessionEnd, SessionStart, Stop,
     UserPromptSubmit,

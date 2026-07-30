@@ -1,0 +1,40 @@
+│                       ▐▛███▜▌                      │ What's new                                                      │
+│                      ▝▜█████▛▘                     │ Bug fixes and reliability improvements                          │
+│                        ▘▘ ▝▝                       │ Added Claude Opus 5 (`claude-opus-5`), now the default Opus mo… │
+│  Opus 5 with high effort · Claude Team · Upstream  │ Added `sandbox.network.strictAllowlist` setting to deny non-al… │
+│  Tech                                              │ /release-notes for more                                         │
+│            /…/scratchpad/probe-run6/work           │                                                                 │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+ ⚠ 2 MCP servers need authentication · run /mcp
+
+❯ Create a file called probe.txt containing the single word hello
+
+● Write(probe.txt)
+  ⎿  Wrote 1 line to probe.txt
+      1 hello
+
+● Created probe.txt containing hello.
+
+✻ Baked for 7s
+
+❯ Use the Bash tool to run exactly this command and wait for it to finish, with no explanation first: python3 -c
+  "print(sum(range(1000000000)))"
+
+  Running 1 shell command…
+  ⎿  $ python3 -c "print(sum(range(1000000000)))"
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Bash command
+
+   python3 -c "print(sum(range(1000000000)))"
+   Sum integers 0 to 999999999 in Python
+
+ This command requires approval
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and don’t ask again for: python3 *
+   3. No
+
+ Esc to cancel · Tab to amend · ctrl+e to explain

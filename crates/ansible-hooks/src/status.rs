@@ -72,6 +72,15 @@ pub enum TerminalHint {
     ApprovalPrompt { tool_name: Option<String> },
     /// The screen shows no prompt.
     NoPrompt,
+    /// The screen cannot be read either way.
+    ///
+    /// In practice a frame caught mid-redraw, with the question drawn and the
+    /// option block not yet. Distinguishing this from [`Self::NoPrompt`] is what
+    /// stops a single partial frame from reporting `AwaitingApproval → Working →
+    /// AwaitingApproval`: two rows in the hub's hottest reducer and a grid that
+    /// blinks off the one status a teammate can act on. Changing nothing is
+    /// always available and is never wrong for one frame.
+    Indeterminate,
 }
 
 /// A status change worth writing to the hub.
@@ -198,8 +207,17 @@ impl StatusMachine {
             }
 
             HookEvent::Notification(e) => {
-                // Never observed firing in the recorded sessions, so treated as
-                // advisory: it raises attention but does not assert a cause.
+                // Advisory: it raises attention but does not assert a cause.
+                //
+                // It must not demote an approval that is still on screen. On a
+                // real interactive session this fires with the message "Claude
+                // needs your permission" about six seconds *after* the prompt is
+                // drawn — so the one event that means "a human is being asked"
+                // was arriving late and moving the grid off the very status it
+                // was reporting. Measured in `docs/spikes/approval-producer.md`.
+                if self.approval_on_screen {
+                    return None;
+                }
                 let detail = e.message.clone().unwrap_or_else(|| "needs attention".into());
                 self.goto(SessionStatus::AwaitingInput, detail)
             }
@@ -258,14 +276,21 @@ impl StatusMachine {
                 if self.status != SessionStatus::AwaitingApproval {
                     return None;
                 }
-                // The prompt is gone, so the tool was answered and is running.
-                let detail = self
-                    .pending
-                    .values()
-                    .next()
-                    .map_or_else(String::new, |p| format!("running: {}", p.tool_name));
-                self.goto(SessionStatus::Working, detail)
+                // The prompt is gone, so the human answered — but the screen does
+                // not say *how*, and the two answers mean opposite things. On a
+                // denial the bracket is never closed (`PostToolUse` does not fire
+                // on the measured deny path), so reporting the pending tool here
+                // would claim `running: Bash` for a command that was just refused
+                // and will never run, and would keep claiming it until `Stop`.
+                //
+                // So this reports no detail and lets the next event supply one:
+                // `PostToolUse` if the tool was allowed, `Stop` if it was not.
+                // A brief empty detail is a smaller lie than a confident wrong one.
+                self.goto(SessionStatus::Working, String::new())
             }
+
+            // Deliberately inert. See [`TerminalHint::Indeterminate`].
+            TerminalHint::Indeterminate => None,
         }
     }
 
@@ -275,6 +300,11 @@ impl StatusMachine {
             return None;
         }
         self.pending.clear();
+        // Leaving this set would outlive the terminal that set it: the latch
+        // suppresses `Notification` and `PreToolUse`, so a session that
+        // re-attached would have no hook-side route back out of an approval
+        // nothing can see any more.
+        self.approval_on_screen = false;
         self.goto(SessionStatus::Detached, String::new())
     }
 
@@ -448,7 +478,71 @@ mod tests {
 
         m.observe_terminal(&TerminalHint::NoPrompt);
         assert_eq!(m.status(), SessionStatus::Working);
-        assert_eq!(m.detail(), "running: Bash");
+        // Not `running: Bash`. The screen says the question is gone; it does not
+        // say which way it was answered, and on a denial the bracket is never
+        // closed — so claiming the tool is running would be a confident lie that
+        // survives until `Stop`. The next hook event supplies the detail.
+        assert_eq!(m.detail(), "", "the screen cannot know whether it was allowed");
+        assert_eq!(m.pending_tools().count(), 1, "the bracket is still open either way");
+    }
+
+    /// The deny path, which is the reason the detail above is empty.
+    #[test]
+    fn a_denied_tool_does_not_report_itself_as_running() {
+        let mut m = StatusMachine::new();
+        m.apply(&prompt(), 0);
+        m.apply(&pre("Bash", "t1"), 10);
+        m.observe_terminal(&TerminalHint::ApprovalPrompt { tool_name: None });
+
+        // The human presses "3. No". The modal disappears; no PostToolUse ever
+        // arrives, because the measured deny path does not produce one.
+        m.observe_terminal(&TerminalHint::NoPrompt);
+        assert!(
+            !m.detail().contains("running"),
+            "a refused command must never be reported as executing, got {:?}",
+            m.detail()
+        );
+
+        // `Stop` is what finally clears it, as it does for any dangling bracket.
+        m.apply(&stop(), 5_000);
+        assert_eq!(m.status(), SessionStatus::AwaitingInput);
+        assert_eq!(m.pending_tools().count(), 0);
+    }
+
+    #[test]
+    fn an_indeterminate_screen_changes_nothing() {
+        let mut m = StatusMachine::new();
+        m.apply(&prompt(), 0);
+        m.apply(&pre("Bash", "t1"), 10);
+        m.observe_terminal(&TerminalHint::ApprovalPrompt { tool_name: Some("Bash".into()) });
+
+        // A frame caught mid-redraw must not clear an approval nobody answered.
+        assert!(m.observe_terminal(&TerminalHint::Indeterminate).is_none());
+        assert_eq!(m.status(), SessionStatus::AwaitingApproval);
+        assert_eq!(m.detail(), "awaiting approval: Bash");
+
+        // And it must not manufacture one either.
+        let mut n = StatusMachine::new();
+        n.apply(&prompt(), 0);
+        assert!(n.observe_terminal(&TerminalHint::Indeterminate).is_none());
+        assert_eq!(n.status(), SessionStatus::Working);
+    }
+
+    #[test]
+    fn detach_clears_the_approval_latch() {
+        let mut m = StatusMachine::new();
+        m.apply(&prompt(), 0);
+        m.observe_terminal(&TerminalHint::ApprovalPrompt { tool_name: Some("Bash".into()) });
+        m.detach();
+
+        // With the latch left set, a re-attached session would have no hook-side
+        // route out of an approval nothing can observe any more.
+        let notification = event(
+            r#"{"hook_event_name":"Notification","session_id":"s1","message":"Claude is waiting for your input"}"#,
+        );
+        m.apply(&prompt(), 10);
+        assert_eq!(m.status(), SessionStatus::Working);
+        assert!(m.apply(&notification, 20).is_some(), "the hook path must work again");
     }
 
     #[test]
@@ -469,6 +563,39 @@ mod tests {
         m.observe_terminal(&TerminalHint::ApprovalPrompt { tool_name: Some("Bash".into()) });
         assert!(m.apply(&pre("Bash", "t1"), 10).is_none());
         assert_eq!(m.status(), SessionStatus::AwaitingApproval);
+    }
+
+    /// Measured: `Notification` fires with "Claude needs your permission" about
+    /// six seconds after the prompt appears. Letting it through would move the
+    /// grid from `AwaitingApproval` to `AwaitingInput` while the human is still
+    /// looking at the same question.
+    #[test]
+    fn a_notification_does_not_demote_an_unanswered_approval() {
+        let mut m = StatusMachine::new();
+        m.apply(&prompt(), 0);
+        m.apply(&pre("Bash", "t1"), 10);
+        m.observe_terminal(&TerminalHint::ApprovalPrompt { tool_name: None });
+        assert_eq!(m.status(), SessionStatus::AwaitingApproval);
+
+        let notification = event(
+            r#"{"hook_event_name":"Notification","session_id":"s1","message":"Claude needs your permission"}"#,
+        );
+        assert!(m.apply(&notification, 20).is_none(), "must not change the status");
+        assert_eq!(m.status(), SessionStatus::AwaitingApproval);
+        assert_eq!(m.detail(), "awaiting approval: Bash");
+    }
+
+    /// The same event with no prompt on screen still means "look at me".
+    #[test]
+    fn a_notification_without_a_prompt_still_raises_attention() {
+        let mut m = StatusMachine::new();
+        m.apply(&prompt(), 0);
+        let notification = event(
+            r#"{"hook_event_name":"Notification","session_id":"s1","message":"Claude is waiting for your input"}"#,
+        );
+        let t = m.apply(&notification, 10).expect("transition");
+        assert_eq!(t.to, SessionStatus::AwaitingInput);
+        assert_eq!(m.detail(), "Claude is waiting for your input");
     }
 
     #[test]

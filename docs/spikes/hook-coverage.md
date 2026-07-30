@@ -206,6 +206,15 @@ fewer than events.
 Distinguishing these from real findings matters, because one of them looks like a
 gap and is not.
 
+> **Both of the questions this section left open are now answered**, on a machine
+> with interactive auth: [approval-producer.md](approval-producer.md). `Notification`
+> fires, ~6 s after the prompt, and had to be stopped from demoting
+> `AwaitingApproval`. `PermissionRequest` fires too, once per prompt rather than
+> once per tool. Neither makes this a hooks-only signal — see
+> [§6 there](approval-producer.md#6-what-this-changes-about-the-hook-story) — but
+> the finding below should be read as "no hook reports a *dismissed* approval",
+> which is the half that was actually proved.
+
 **No interactive session.** Interactive `claude` requires OAuth here, which the
 `--print` path bypasses via injected credentials. So a genuine approval *prompt*
 could not be produced, and `Notification` was never observed firing. Its payload
@@ -228,6 +237,13 @@ things remain to confirm on a machine with interactive auth:
 
 Neither can turn `AwaitingApproval` into a hooks-only signal, because neither
 reports the prompt being *dismissed*.
+
+**Both were confirmed to fire, and that prediction held.** `PermissionRequest`
+turned out to be a real rising edge — it fires when a human is asked and not when
+a tool is merely called — but nothing fires when a prompt is declined or dismissed
+with `Esc`, so the terminal is still the only complete producer.
+[approval-producer.md §6](approval-producer.md#6-what-this-changes-about-the-hook-story)
+has the payloads and the decision this leaves open.
 
 ---
 
@@ -254,3 +270,7 @@ The remaining hook work needs a machine with interactive auth, not
 infrastructure: confirm `Notification`, and confirm the terminal-snapshot
 detection of an approval prompt against a real prompt rather than a synthetic
 hint.
+
+**Both are now done** — [approval-producer.md](approval-producer.md). The
+detection is `ansible_hooks::approval`, measured at 1.3–3.6 ms from a real prompt
+being drawn, with the screens checked in as fixtures.
