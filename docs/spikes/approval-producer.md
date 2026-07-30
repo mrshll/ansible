@@ -159,9 +159,13 @@ defect as the `Notification` bug in §5, arriving from the other side.
 
 Two wrap cases are handled, and were not at first: an option that soft-wraps onto
 a second screen line no longer ends the block, and a question whose object wraps
-is rejoined across two lines. Every fixture was recorded at 120 columns where
-nothing wrapped, so nothing caught this — at 80 columns a long
-`2. Yes, and don't ask again for: …` would have made the whole prompt invisible.
+is rejoined across however many rows it occupies — bounded at four, and stopped by
+a blank line, a second `?`, an option or the footer, so a stray question mark
+cannot reach back and borrow someone else's `Do you want`. Every fixture was
+recorded at 120 columns where nothing wrapped, so nothing caught this — at 80
+columns a long `2. Yes, and don't ask again for: …` would have made the whole
+prompt invisible, and a deep path in a resized pane takes more than the one
+continuation row the first fix allowed for.
 
 These are a TUI's strings, so they will move. That is why they are named
 constants, why the fixtures are recordings, and why re-recording is one script.

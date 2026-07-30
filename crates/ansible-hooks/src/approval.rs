@@ -94,6 +94,14 @@ const FOOTER: &str = "Esc to cancel";
 /// options, blank, footer — is six lines.
 const BLOCK_SCAN_LINES: usize = 12;
 
+/// How many rows above the `?` a soft-wrapped question may be spread over.
+///
+/// Bounded for the same reason as [`BLOCK_SCAN_LINES`]: without a limit a stray
+/// `?` anywhere on screen could walk up to an unrelated `Do you want`. Four rows
+/// is a question whose object is a path long enough to fill three of them at 80
+/// columns, which is past anything observed.
+const QUESTION_WRAP_LINES: usize = 4;
+
 /// One selectable answer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApprovalOption {
@@ -168,11 +176,13 @@ pub fn detect(screen: &str) -> Option<ApprovalPrompt> {
     None
 }
 
-/// The question line, rejoined if it soft-wrapped onto a second screen line.
+/// The question line, rejoined across however many rows it soft-wrapped onto.
 ///
 /// A long object wraps — `Do you want to create <long path>?` — which leaves the
-/// prefix on one line and the `?` on the next, and neither line satisfies both
-/// halves of the test on its own.
+/// prefix on one line and the `?` on another, and no single line satisfies both
+/// halves of the test on its own. A deep path in a narrow or resized pane takes
+/// more than one continuation row, so this walks up rather than looking back
+/// exactly one line.
 fn question_ending_at(lines: &[&str], i: usize) -> Option<String> {
     let line = lines[i].trim();
     if !line.ends_with('?') {
@@ -181,9 +191,30 @@ fn question_ending_at(lines: &[&str], i: usize) -> Option<String> {
     if line.starts_with(QUESTION_PREFIX) {
         return Some(line.to_string());
     }
-    let previous = lines.get(i.checked_sub(1)?)?.trim();
-    if previous.starts_with(QUESTION_PREFIX) && !previous.ends_with('?') {
-        return Some(format!("{previous} {line}"));
+
+    // Upward through the continuation rows to the one holding the prefix. Every
+    // stop condition here keeps an unrelated `?` from reaching back across the
+    // screen to borrow a `Do you want` that belongs to something else: the walk
+    // is bounded, and a blank line, a second question, an option or the footer
+    // all end it. Rows are joined with a single space, which is what the
+    // unwrapped question was.
+    let mut parts: Vec<&str> = vec![line];
+    let mut j = i;
+    for _ in 0..QUESTION_WRAP_LINES {
+        j = j.checked_sub(1)?;
+        let previous = lines[j].trim();
+        if previous.is_empty()
+            || previous.ends_with('?')
+            || previous.contains(FOOTER)
+            || parse_option(previous).is_some()
+        {
+            return None;
+        }
+        parts.push(previous);
+        if previous.starts_with(QUESTION_PREFIX) {
+            parts.reverse();
+            return Some(parts.join(" "));
+        }
     }
     None
 }
@@ -404,6 +435,56 @@ mod tests {
         let prompt = detect(screen).expect("a wrapped question must not hide the prompt");
         assert!(prompt.question.starts_with("Do you want to create"));
         assert!(prompt.question.ends_with(".screen?"));
+    }
+
+    /// The same wrap, over more rows than one.
+    ///
+    /// A narrow or resized pane spreads a long object over several continuation
+    /// rows. Looking back exactly one line found the `?` and the prefix on
+    /// non-adjacent rows, reported nothing, and left a real prompt reading
+    /// `Indeterminate` for as long as it was on screen.
+    #[test]
+    fn a_question_that_wrapped_over_three_rows_is_rejoined() {
+        let screen = "\
+ Do you want to create
+ crates/ansible-hooks/tests/fixtures/screens/
+ a-rather-long-fixture-name-that-keeps-going.screen?
+ ❯ 1. Yes
+   3. No
+
+ Esc to cancel";
+        let prompt = detect(screen).expect("a question over three rows must not hide the prompt");
+        assert_eq!(
+            prompt.question,
+            "Do you want to create crates/ansible-hooks/tests/fixtures/screens/ \
+             a-rather-long-fixture-name-that-keeps-going.screen?"
+        );
+        assert_eq!(prompt.options.len(), 2);
+    }
+
+    /// The bound on that walk.
+    #[test]
+    fn a_stray_question_mark_cannot_reach_a_distant_prefix() {
+        let mut screen = String::from(" Do you want to create\n");
+        for _ in 0..=QUESTION_WRAP_LINES {
+            screen.push_str(" a continuation row\n");
+        }
+        screen.push_str(" something entirely else?\n ❯ 1. Yes\n   3. No\n\n Esc to cancel\n");
+        assert!(detect(&screen).is_none());
+    }
+
+    /// And the stops inside it: the walk must not cross a blank line.
+    #[test]
+    fn a_blank_line_ends_the_question_walk() {
+        let screen = "\
+ Do you want to create
+
+ probe.txt?
+ ❯ 1. Yes
+   3. No
+
+ Esc to cancel";
+        assert!(detect(screen).is_none(), "a paragraph break is not a soft wrap");
     }
 
     /// The positional signal, on its own.

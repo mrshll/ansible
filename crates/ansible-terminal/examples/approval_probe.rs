@@ -72,9 +72,17 @@ const HOOK_EVENTS: &[&str] = &[
 type Failure = Box<dyn std::error::Error>;
 
 fn main() -> Result<(), Failure> {
-    let args = Args::parse()?;
+    let mut args = Args::parse()?;
     std::fs::create_dir_all(&args.out)?;
     std::fs::create_dir_all(&args.cwd)?;
+    // The child runs in `--cwd`, not ours, so every path handed to it — the
+    // settings overlay, the receiver it names, `HOOK_LOG` — has to be absolute.
+    // A relative `--out` would otherwise resolve *below* the work directory
+    // (`out/settings.json` becoming `out/work/out/settings.json`), the overlay
+    // would not load, and the probe would fail with no hooks rather than
+    // recording anything. Once, here, now that the directories exist.
+    args.out = args.out.canonicalize()?;
+    args.cwd = args.cwd.canonicalize()?;
 
     let overlay = write_hook_overlay(&args.out)?;
     let mut probe = Probe::spawn(&args, &overlay)?;
