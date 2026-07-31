@@ -93,7 +93,19 @@ impl Daemon {
             login,
             host,
             doc_seq: 0,
-            token_seq: 0,
+            // Seeded from the clock, not from zero, because Herdr's `seq` is a
+            // strict monotonic guard per (pane, source): a patch whose seq is lower
+            // than or equal to the last one it saw for that pair is dropped, and it
+            // still answers `{"type":"ok"}`. A counter that restarts at zero
+            // therefore goes silent after a daemon restart — for as many patches as
+            // the previous run made, which since `reported` only patches on change
+            // can be the whole of the next session — and `reported` would record
+            // each dropped patch as delivered. That takes the `$herd` watcher token
+            // off the owner's sidebar row with no error anywhere, which is the one
+            // failure this consent story cannot have. Epoch milliseconds are
+            // monotonic across restarts without anything to persist.
+            // `scripts/probe-herdr.sh` check E2 is what found this.
+            token_seq: crate::clock::now_ms(),
             last_published: None,
             last_publish_ms: 0,
             last_poll_ms: 0,
@@ -706,6 +718,33 @@ mod tests {
             branch: None,
             state_change_seq: None,
         }
+    }
+
+    /// Herdr drops a token patch whose `seq` is not strictly greater than the last
+    /// it saw for that (pane, source) — and answers `ok` anyway. So the one thing
+    /// this counter must not do is start where the last run started.
+    #[test]
+    fn a_restarted_daemon_does_not_reuse_token_sequence_numbers() {
+        let dir =
+            std::env::temp_dir().join(format!("ansible-herd-daemon-seq-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let paths = Paths { config_dir: dir.join("config"), state_dir: dir.join("state") };
+        let config = Config {
+            login: "mrshll".into(),
+            hub: crate::config::Hub { path: Some(dir.join("hub")), ..Default::default() },
+            ..Default::default()
+        };
+
+        let before = crate::clock::now_ms();
+        let first = Daemon::new(config.clone(), &paths).expect("daemon");
+        let second = Daemon::new(config, &paths).expect("daemon");
+
+        assert!(first.token_seq >= before, "seeded from the clock, not from zero");
+        assert!(
+            second.token_seq >= first.token_seq,
+            "a second run must not hand Herdr a sequence number the first run already spent"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -11,3 +11,9 @@ apps/desktop/src-tauri/gen/schemas/
 # npm workspaces
 node_modules/
 dist/
+
+# `scripts/probe-herdr.sh` with no argument writes here. A bundle worth keeping gets
+# moved under docs/telemetry/ deliberately, so an accidental run does not turn the
+# tree dirty or red — the captures are verbatim responses and the formatter has no
+# business rewriting them.
+herdr-telemetry-*/

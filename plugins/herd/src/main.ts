@@ -13,8 +13,8 @@
  * the decision recorded in `docs/adr/0005-typescript-and-the-herdr-host.md`.
  */
 
-import { readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 import type { Card, World } from "./model.js";
 import { normalize, statusFromHerdr } from "./model.js";
@@ -216,6 +216,11 @@ function demo(paths: ReturnType<typeof resolvePaths>, login: string): number {
   };
 
   const file = worldPath(paths);
+  // `hub.path` names a directory the daemon would have created; `demo` runs before
+  // there is a daemon, and the starter config points at one that does not exist
+  // yet. Creating parents is what the Rust side does on every state write — see
+  // `state.rs: writing_creates_missing_parent_directories`.
+  mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, `${JSON.stringify(world, null, 2)}\n`);
   console.log(`wrote ${world.cards.length} synthetic session(s) to ${file}`);
   console.log("run `ansible-herd roster` to see them");

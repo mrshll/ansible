@@ -10,5 +10,12 @@
   "insertFinalNewline": true,
   "sortImports": true,
   "sortPackageJson": true,
-  "ignorePatterns": ["**/dist/**", "**/target/**", "**/.wrangler/**", "**/*.md"]
+  "ignorePatterns": [
+    "**/dist/**",
+    "**/target/**",
+    "**/.wrangler/**",
+    "**/*.md",
+    "**/docs/telemetry/**",
+    "herdr-telemetry-*/**"
+  ]
 }

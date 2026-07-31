@@ -28,6 +28,58 @@ function world(cards: Card[], comments: World["comments"] = []): World {
 
 const OPTIONS = { me: "me", now: NOW, staleAfterMs: 20_000, forgetAfterMs: 300_000 };
 
+/**
+ * One of each thing the margin can say, for the golden below: a raised hand with
+ * its note, a live pane of my own with watchers and unread mail, and a plain row.
+ */
+const GOLDEN: World = world(
+  [
+    card({
+      login: "alice",
+      displayName: "Alice",
+      status: "AwaitingApproval",
+      headline: "wire up read authorization",
+      statusSince: NOW - 240_000,
+      help: {
+        login: "alice",
+        note: "RLS refuses to compare an enum to a literal",
+        since: NOW - 240_000,
+      },
+    }),
+    card({
+      login: "me",
+      displayName: "Sam",
+      status: "Working",
+      headline: "port the chunker to the relay",
+      statusSince: NOW - 35_000,
+      share: "live",
+      watchers: ["robin", "kim"],
+      sessionId: "me-w1p2",
+      paneId: "w1:p2",
+    }),
+    card({
+      login: "robin",
+      displayName: "Robin",
+      status: "Done",
+      headline: "docs: hook coverage table",
+      statusSince: NOW - 900_000,
+      sessionId: "robin-w2p1",
+    }),
+  ],
+  [
+    {
+      id: 1,
+      sessionId: "me-w1p2",
+      from: "alice",
+      to: "me",
+      body: "try --no-verify",
+      chunkSeq: 0,
+      byteOffset: 0,
+      createdAt: NOW,
+    },
+  ],
+);
+
 describe("statusFromHerdr", () => {
   it("maps blocked to the status a teammate can resolve", () => {
     // The load-bearing line of the whole pivot.
@@ -163,6 +215,29 @@ describe("roster filtering", () => {
 });
 
 describe("roster rendering", () => {
+  /**
+   * The layout, held still.
+   *
+   * Every other assertion in this block is a substring check, which is what let
+   * this renderer sit a column right of its own header without anything failing.
+   * A golden of the whole thing costs one test and makes spacing, padding, the
+   * help line's indent, and the margin's order all deliberate.
+   */
+  it("renders the whole block, column for column", () => {
+    expect(render(rows(GOLDEN, OPTIONS), "dir hub at /tmp/herd", NOW)).toBe(
+      [
+        "  #  who          agent   state     for   what",
+        "  ─  ───          ─────   ─────     ───   ────",
+        "  1  Alice        claude  !blocked    4m  wire up read authorization",
+        "       ↳ help: RLS refuses to compare an enum to a literal",
+        "  2  Robin        claude  +done      15m  docs: hook coverage table",
+        "  3  Sam          claude  >working   35s  port the chunker to the relay (you) [live] 👀2 ✉1",
+        "",
+        "dir hub at /tmp/herd",
+      ].join("\n"),
+    );
+  });
+
   it("marks my own rows so I can see what teammates see", () => {
     const list = rows(world([card({ login: "me", status: "Working" })]), OPTIONS);
     expect(list[0]?.isMe).toBe(true);

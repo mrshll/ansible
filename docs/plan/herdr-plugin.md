@@ -414,6 +414,53 @@ restart, or credentials.
    scripts/probe-rls.sh          # 6 assertions, from an identity that owns nothing
    ```
 
+### What the macOS run added
+
+The second bundle —
+[`docs/telemetry/herdr-0.7.5-macos-20260731/`](../telemetry/herdr-0.7.5-macos-20260731/report.md)
+— is the same Herdr against a session with eight live agent panes. 18 pass, 1 fail.
+
+First, most of the Linux run's failures were the probe's, not Herdr's. `call()`
+defaulted its params with `${3:-{\}}`, which bash 5 expands to `{}` and macOS's
+bash 3.2 to `{\}`; every check that relied on the default died in `json.loads` and
+was recorded as a failure of the host. So A2, A3, A4 and B1 pass, and B2's "5 missing
+fields" was an audit reading an empty capture. A probe that reports the host as
+broken when it is the probe that is broken is worse than no probe.
+
+What is now observation rather than hope:
+
+* **Every field name is reached under its first choice.** `pane_id`, `agent`,
+  `agent_status`, `terminal_title_stripped`, `foreground_cwd` — no fallback fired
+  [B2]. This is the biggest of the five guesses closed.
+* **Tokens round-trip.** `pane.report_metadata` accepts the patch, the token is
+  readable back on `pane.get`, and a null clears it [E1, E2, E4].
+* **Teleport's frames are real.** `terminal session observe` yields
+  `terminal.frame` records with `{bytes, encoding, full, height, seq, width}`, base64
+  under `bytes`, which is exactly what `teleport.rs:parse_frame` reaches for first
+  [I1, I2].
+* **`agent_status`** was seen as `working`, `idle` and `done` [C1].
+
+And one finding that was a live bug in this repo, not an assumption:
+
+* **`seq` is a strict monotonic guard per (pane, source), and a stale patch is
+  dropped with an `ok`.** Measured on a fresh source: 100 applies, then 50 is
+  dropped, then 100 again is dropped, then 101 applies — all four answering
+  `{"type":"ok"}`. `Daemon::new` seeded `token_seq` at 0, so after any daemon
+  restart its patches were silently discarded until the counter climbed past the
+  previous run's high-water mark; and because `reported` only patches on *change*,
+  that could be the whole of the next session, with `reported` recording each
+  dropped patch as delivered. The `$herd` watcher token would quietly stop appearing
+  on the owner's sidebar row — the one failure the consent story in §4 cannot have.
+  Now seeded from the clock, which is monotonic across restarts without anything to
+  persist.
+
+Still unanswered are the checks that need eyes rather than a socket: E3 (does a token
+*render*), J1 (does `send_text` type without submitting), I4, K4, K5, and the
+SpacetimeDB half. Note also that `notification.show` answers
+`{"shown": false, "reason": "disabled"}` on this machine — toasts are off, so the
+comment-arrival nudge described in §4 is a no-op here and the sidebar token and the
+roster's `✉` marker are carrying it alone.
+
 ## What to build next, in order
 
 1. **Run `capture-herdr-fixtures.sh`** and close the five items above. Everything

@@ -1,0 +1,7 @@
+{
+  "id": "probe",
+  "result": {
+    "active": false,
+    "type": "agent_view"
+  }
+}

@@ -134,7 +134,16 @@ SOCKET=""
 
 # call <name> <method> [params-json]  → writes raw/<name>.json, echoes it
 call() {
-  local name="$1" method="$2" params="${3:-{\}}"
+  # Two lines rather than `${3:-{\}}`, because that expansion is not portable: bash
+  # 5 drops the backslash and yields `{}`, and macOS's /bin/bash 3.2 keeps it and
+  # yields `{\}`. The first telemetry bundle came off a bash 5 box and passed; the
+  # first macOS run failed five checks — ping, session.snapshot, pane.list,
+  # agent.list, unknown-method, every call that relied on the default — with an
+  # empty response file and a json.loads traceback in the .err beside it. A probe
+  # that reports the host as broken when it is the probe that is broken is worse
+  # than no probe.
+  local name="$1" method="$2" params="${3-}"
+  [[ -n "$params" ]] || params='{}'
   python3 - "$SOCKET" "$method" "$params" > "$OUT/raw/$name.json" 2>"$OUT/raw/$name.err" <<'PY'
 import json, socket, sys
 
@@ -372,7 +381,13 @@ AGENT_FIELDS = [
 WORKSPACE_FIELDS = [
     (["workspace_id", "id"], False),
     (["label", "name"], False),
-    (["cwd"], False),
+    # Optional for the same reason as its two neighbours below: a workspace row
+    # carries no cwd. `herdr.rs:workspace_labels` records that as an observation and
+    # reads it with `if let Some`, and the agent record — which does carry both
+    # `foreground_cwd` and `cwd` — is where the answer actually comes from, so the
+    # workspace fallback never fires. Required here, this entry failed B2 forever
+    # over a field nothing needs.
+    (["cwd"], True),
     (["worktree"], True),
     (["branch"], True),
 ]
@@ -638,7 +653,13 @@ if [[ -z "$TOKEN_PANE" ]]; then
   check E1 tokens unknown "\`pane.report_metadata\` accepts a token patch with source, ttl_ms and seq" \
     "no pane to write to" "" "crates/ansible-herd/src/herdr.rs:report_tokens"
 else
-  call report-metadata pane.report_metadata "$(printf '{"pane_id":"%s","source":"probe:herd","tokens":{"herd":"2 watching","probe":"hello"},"ttl_ms":120000,"seq":1}' "$TOKEN_PANE")" >/dev/null
+  # Epoch milliseconds, not 1. `seq` is a strict monotonic guard per (pane, source)
+  # and a stale patch is dropped with an `ok` — so a hardcoded 1 makes E2 pass on
+  # the first ever run against a pane and fail on every run after it, which is
+  # exactly the coin flip observed. This is also the bug the guard found in
+  # `daemon.rs`, where the counter restarted at zero on every daemon start.
+  TOKEN_SEQ="$(python3 -c 'import time; print(int(time.time()*1000))')"
+  call report-metadata pane.report_metadata "$(printf '{"pane_id":"%s","source":"probe:herd","tokens":{"herd":"2 watching","probe":"hello"},"ttl_ms":120000,"seq":%s}' "$TOKEN_PANE" "$TOKEN_SEQ")" >/dev/null
   if has "$OUT/raw/report-metadata.json" result; then
     check E1 tokens pass "\`pane.report_metadata\` accepts a token patch with source, ttl_ms and seq" \
       "result.type=$(get "$OUT/raw/report-metadata.json" result.type)" "raw/report-metadata.json" \
@@ -669,8 +690,10 @@ else
      If not, try adding \$herd to the sidebar row format in your Herdr config and answer n with what you had to change." \
     "docs/plan/herdr-plugin.md#2-status-that-is-mostly-free"
 
-  # Clear up after ourselves: null clears a key.
-  call report-metadata-clear pane.report_metadata "$(printf '{"pane_id":"%s","source":"probe:herd","tokens":{"herd":null,"probe":null},"seq":2}' "$TOKEN_PANE")" >/dev/null
+  # Clear up after ourselves: null clears a key. Past the write's seq, or the clear
+  # is the patch that gets silently dropped and the probe leaves its tokens behind
+  # on someone's sidebar row.
+  call report-metadata-clear pane.report_metadata "$(printf '{"pane_id":"%s","source":"probe:herd","tokens":{"herd":null,"probe":null},"seq":%s}' "$TOKEN_PANE" "$((TOKEN_SEQ + 1))")" >/dev/null
   if has "$OUT/raw/report-metadata-clear.json" result; then
     check E4 tokens pass "a null token value clears the key (how a watcher who left is removed)" \
       "cleared" "raw/report-metadata-clear.json" "crates/ansible-herd/src/daemon.rs:report_tokens"

@@ -1,0 +1,5 @@
+record types seen : terminal.frame
+top-level keys    : bytes, encoding, full, height, seq, type, width
+payload field(s)  : bytes
+base64-decodable  : 1 of 1 attempted
+frame bytes       : min 100614 / max 100614 / total 100614

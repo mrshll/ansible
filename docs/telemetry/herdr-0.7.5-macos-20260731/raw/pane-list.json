@@ -1,0 +1,166 @@
+{
+  "id": "probe",
+  "result": {
+    "panes": [
+      {
+        "agent": "codex",
+        "agent_status": "done",
+        "cwd": "/Users/marsh/workspace/dynamical-org/reformatters",
+        "focused": false,
+        "foreground_cwd": "/Users/marsh/workspace/dynamical-org/reformatters",
+        "pane_id": "wA:p1",
+        "revision": 18,
+        "scroll": {
+          "max_offset_from_bottom": 1929,
+          "offset_from_bottom": 0,
+          "viewport_rows": 82
+        },
+        "tab_id": "wA:t1",
+        "terminal_id": "term_657d53f72188ae",
+        "terminal_title": "reformatters",
+        "terminal_title_stripped": "reformatters",
+        "workspace_id": "wA"
+      },
+      {
+        "agent": "codex",
+        "agent_status": "done",
+        "cwd": "/Users/marsh/workspace/dot",
+        "focused": false,
+        "foreground_cwd": "/Users/marsh/workspace/dot",
+        "pane_id": "wB:p1",
+        "revision": 5,
+        "scroll": {
+          "max_offset_from_bottom": 395,
+          "offset_from_bottom": 0,
+          "viewport_rows": 82
+        },
+        "tab_id": "wB:t1",
+        "terminal_id": "term_657d54411b5a6f",
+        "terminal_title": "dot",
+        "terminal_title_stripped": "dot",
+        "workspace_id": "wB"
+      },
+      {
+        "agent": "codex",
+        "agent_status": "idle",
+        "cwd": "/Users/marsh/workspace/pond",
+        "focused": false,
+        "foreground_cwd": "/Users/marsh/workspace/pond",
+        "pane_id": "w8:p1",
+        "revision": 11,
+        "scroll": {
+          "max_offset_from_bottom": 662,
+          "offset_from_bottom": 0,
+          "viewport_rows": 82
+        },
+        "tab_id": "w8:t1",
+        "terminal_id": "term_657d51b33e180b",
+        "terminal_title": "pond",
+        "terminal_title_stripped": "pond",
+        "workspace_id": "w8"
+      },
+      {
+        "agent": "codex",
+        "agent_status": "idle",
+        "cwd": "/Users/marsh/workspace/dynamical-org",
+        "focused": false,
+        "foreground_cwd": "/Users/marsh/workspace/dynamical-org",
+        "pane_id": "wP:p1",
+        "revision": 9,
+        "scroll": {
+          "max_offset_from_bottom": 169,
+          "offset_from_bottom": 0,
+          "viewport_rows": 82
+        },
+        "tab_id": "wP:t1",
+        "terminal_id": "term_657ea5c0b695729",
+        "terminal_title": "dynamical-org",
+        "terminal_title_stripped": "dynamical-org",
+        "workspace_id": "wP"
+      },
+      {
+        "agent": "claude",
+        "agent_status": "working",
+        "cwd": "/Users/marsh/workspace/ansible",
+        "focused": false,
+        "foreground_cwd": "/Users/marsh/workspace/ansible",
+        "pane_id": "wQ:p1",
+        "revision": 11,
+        "scroll": {
+          "max_offset_from_bottom": 0,
+          "offset_from_bottom": 0,
+          "viewport_rows": 82
+        },
+        "tab_id": "wQ:t1",
+        "terminal_id": "term_657eab753e1902c",
+        "terminal_title": "\u2802 Test Ansible changes from PR 9",
+        "terminal_title_stripped": "Test Ansible changes from PR 9",
+        "workspace_id": "wQ"
+      },
+      {
+        "agent": "codex",
+        "agent_status": "working",
+        "cwd": "/Users/marsh/.local/state/herdr-mirror/.mirror-pane",
+        "display_agent": "codex",
+        "focused": false,
+        "foreground_cwd": "/Users/marsh/.local/state/herdr-mirror/.mirror-pane",
+        "pane_id": "wG:p2",
+        "revision": 2,
+        "scroll": {
+          "max_offset_from_bottom": 0,
+          "offset_from_bottom": 0,
+          "viewport_rows": 82
+        },
+        "tab_id": "wG:t2",
+        "terminal_id": "term_657deb0f1d9301c",
+        "terminal_title": "exec '/Users/marsh/. ~/.l/s/h/.mirror-pane",
+        "terminal_title_stripped": "exec '/Users/marsh/. ~/.l/s/h/.mirror-pane",
+        "title": "reformatters",
+        "workspace_id": "wG"
+      },
+      {
+        "agent": "claude",
+        "agent_status": "working",
+        "cwd": "/Users/marsh/.local/state/herdr-mirror/.mirror-pane",
+        "display_agent": "claude",
+        "focused": true,
+        "foreground_cwd": "/Users/marsh/.local/state/herdr-mirror/.mirror-pane",
+        "pane_id": "wH:p2",
+        "revision": 2,
+        "scroll": {
+          "max_offset_from_bottom": 0,
+          "offset_from_bottom": 0,
+          "viewport_rows": 82
+        },
+        "tab_id": "wH:t2",
+        "terminal_id": "term_657e8490f941720",
+        "terminal_title": "exec '/Users/marsh/. ~/.l/s/h/.mirror-pane",
+        "terminal_title_stripped": "exec '/Users/marsh/. ~/.l/s/h/.mirror-pane",
+        "title": "Create virtual data products for catalog entries",
+        "workspace_id": "wH"
+      },
+      {
+        "agent": "codex",
+        "agent_status": "working",
+        "cwd": "/Users/marsh/.local/state/herdr-mirror/.mirror-pane",
+        "display_agent": "codex",
+        "focused": false,
+        "foreground_cwd": "/Users/marsh/.local/state/herdr-mirror/.mirror-pane",
+        "pane_id": "wJ:p2",
+        "revision": 2,
+        "scroll": {
+          "max_offset_from_bottom": 0,
+          "offset_from_bottom": 0,
+          "viewport_rows": 82
+        },
+        "tab_id": "wJ:t2",
+        "terminal_id": "term_657e84912ab1521",
+        "terminal_title": "exec '/Users/marsh/. ~/.l/s/h/.mirror-pane",
+        "terminal_title_stripped": "exec '/Users/marsh/. ~/.l/s/h/.mirror-pane",
+        "title": "dynamical-org",
+        "workspace_id": "wJ"
+      }
+    ],
+    "type": "pane_list"
+  }
+}

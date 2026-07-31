@@ -142,15 +142,17 @@ export function render(list: Row[], footer: string, now: number): string {
   }
   for (const row of list) {
     const state = `${statusGlyph(row.card.status)}${statusLabel(row.card.status)}`;
+    // The gaps are part of the layout, not decoration: a single space after the
+    // padded who/agent/state fields and two around the index and the headline, so
+    // every column starts where its header says it does. Joining every field with
+    // the same separator drifts the data one column right of `agent`, two of
+    // `state`, three of `for` — which is what this did before, and what the golden
+    // in roster.test.ts now holds still.
     lines.push(
-      [
-        String(row.index).padStart(3),
-        truncate(row.who, 12).padEnd(12),
-        truncate(row.card.agent, 7).padEnd(7),
-        state.padEnd(9),
-        formatAge(now - row.card.statusSince).padStart(4),
-        truncate(headlineOf(row), 40) + marks(row),
-      ].join("  "),
+      `${String(row.index).padStart(3)}  ${truncate(row.who, 12).padEnd(12)} ` +
+        `${truncate(row.card.agent, 7).padEnd(7)} ${state.padEnd(9)} ` +
+        `${formatAge(now - row.card.statusSince).padStart(4)}  ` +
+        `${truncate(headlineOf(row), 40)}${marks(row)}`,
     );
     if (row.showHelp && row.card.help !== undefined) {
       lines.push(`       ↳ help: ${truncate(row.card.help.note, 60)}`);

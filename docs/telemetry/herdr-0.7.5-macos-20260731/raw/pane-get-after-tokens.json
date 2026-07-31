@@ -1,0 +1,29 @@
+{
+  "id": "probe",
+  "result": {
+    "pane": {
+      "agent": "codex",
+      "agent_status": "done",
+      "cwd": "/Users/marsh/workspace/dynamical-org/reformatters",
+      "focused": false,
+      "foreground_cwd": "/Users/marsh/workspace/dynamical-org/reformatters",
+      "pane_id": "wA:p1",
+      "revision": 19,
+      "scroll": {
+        "max_offset_from_bottom": 1929,
+        "offset_from_bottom": 0,
+        "viewport_rows": 82
+      },
+      "tab_id": "wA:t1",
+      "terminal_id": "term_657d53f72188ae",
+      "terminal_title": "reformatters",
+      "terminal_title_stripped": "reformatters",
+      "tokens": {
+        "herd": "2 watching",
+        "probe": "hello"
+      },
+      "workspace_id": "wA"
+    },
+    "type": "pane_info"
+  }
+}

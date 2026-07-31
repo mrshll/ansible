@@ -1,0 +1,44 @@
+=== collections on session.snapshot ===
+  workspaces/workspace_records                  OK via workspaces (8 rows)
+  tabs/tab_records                              OK via tabs (8 rows)
+  panes/pane_records                            OK via panes (8 rows)
+  agents/agent_records                          OK via agents (8 rows)
+
+  focused_pane_id: wH:p2
+
+[agent record (from session.snapshot)]
+  keys present: agent, agent_status, cwd, focused, foreground_cwd, pane_id, revision, state_change_seq, tab_id, terminal_id, terminal_title, terminal_title_stripped, workspace_id
+  pane_id                                       OK via 'pane_id'
+  workspace_id                                  OK via 'workspace_id'
+  tab_id                                        OK via 'tab_id'
+  display_agent/agent/kind/agent_kind           OK via 'agent'
+  agent_status/status/state                     OK via 'agent_status'
+  terminal_title_stripped/terminal_title        OK via 'terminal_title_stripped'
+  foreground_cwd/cwd                            OK via 'foreground_cwd'
+
+[agent record (from agent.list)]
+  keys present: agent, agent_status, cwd, focused, foreground_cwd, pane_id, revision, state_change_seq, tab_id, terminal_id, terminal_title, terminal_title_stripped, workspace_id
+  pane_id                                       OK via 'pane_id'
+  workspace_id                                  OK via 'workspace_id'
+  tab_id                                        OK via 'tab_id'
+  display_agent/agent/kind/agent_kind           OK via 'agent'
+  agent_status/status/state                     OK via 'agent_status'
+  terminal_title_stripped/terminal_title        OK via 'terminal_title_stripped'
+  foreground_cwd/cwd                            OK via 'foreground_cwd'
+
+[workspace record]
+  keys present: active_tab_id, agent_status, focused, label, number, pane_count, tab_count, workspace_id
+  workspace_id/id                               OK via 'workspace_id'
+  label/name                                    OK via 'label'
+  cwd                                           ABSENT (optional)
+  worktree                                      ABSENT (optional)
+  branch                                        ABSENT (optional)
+
+[tab record]
+  keys present: agent_status, focused, label, number, pane_count, tab_id, workspace_id
+  tab_id/id                                     OK via 'tab_id'
+  label/name                                    OK via 'label'
+  workspace_id                                  OK via 'workspace_id'
+
+=== agent_status values observed ===
+  agent_status=done, agent_status=idle, agent_status=working
