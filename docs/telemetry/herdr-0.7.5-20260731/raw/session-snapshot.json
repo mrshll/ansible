@@ -1,0 +1,101 @@
+{
+  "id": "probe",
+  "result": {
+    "snapshot": {
+      "agents": [
+        {
+          "agent": "claude",
+          "agent_status": "working",
+          "cwd": "/home/sam/upstream/mono",
+          "focused": true,
+          "foreground_cwd": "/home/sam/upstream/mono/hf",
+          "pane_id": "w7:p1",
+          "revision": 8,
+          "state_change_seq": 43,
+          "tab_id": "w7:t1",
+          "terminal_id": "term_657da34abec2e7",
+          "terminal_title": "\u2810 Implement Phase 5 MCP OAuth with Playwright tests",
+          "terminal_title_stripped": "Implement Phase 5 MCP OAuth with Playwright tests",
+          "workspace_id": "w7"
+        }
+      ],
+      "focused_pane_id": "w7:p1",
+      "focused_tab_id": "w7:t1",
+      "focused_workspace_id": "w7",
+      "layouts": [
+        {
+          "area": {
+            "height": 71,
+            "width": 230,
+            "x": 26,
+            "y": 1
+          },
+          "focused_pane_id": "w7:p1",
+          "panes": [
+            {
+              "focused": true,
+              "pane_id": "w7:p1",
+              "rect": {
+                "height": 71,
+                "width": 230,
+                "x": 26,
+                "y": 1
+              }
+            }
+          ],
+          "splits": [],
+          "tab_id": "w7:t1",
+          "workspace_id": "w7",
+          "zoomed": false
+        }
+      ],
+      "panes": [
+        {
+          "agent": "claude",
+          "agent_status": "working",
+          "cwd": "/home/sam/upstream/mono",
+          "focused": true,
+          "foreground_cwd": "/home/sam/upstream/mono/hf",
+          "pane_id": "w7:p1",
+          "revision": 8,
+          "scroll": {
+            "max_offset_from_bottom": 0,
+            "offset_from_bottom": 0,
+            "viewport_rows": 71
+          },
+          "tab_id": "w7:t1",
+          "terminal_id": "term_657da34abec2e7",
+          "terminal_title": "\u2810 Implement Phase 5 MCP OAuth with Playwright tests",
+          "terminal_title_stripped": "Implement Phase 5 MCP OAuth with Playwright tests",
+          "workspace_id": "w7"
+        }
+      ],
+      "protocol": 17,
+      "tabs": [
+        {
+          "agent_status": "working",
+          "focused": true,
+          "label": "1",
+          "number": 1,
+          "pane_count": 1,
+          "tab_id": "w7:t1",
+          "workspace_id": "w7"
+        }
+      ],
+      "version": "0.7.5",
+      "workspaces": [
+        {
+          "active_tab_id": "w7:t1",
+          "agent_status": "working",
+          "focused": true,
+          "label": "mono",
+          "number": 1,
+          "pane_count": 1,
+          "tab_count": 1,
+          "workspace_id": "w7"
+        }
+      ]
+    },
+    "type": "session_snapshot"
+  }
+}

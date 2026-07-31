@@ -1,0 +1,153 @@
+# ansible-herd — team presence for coding agents, as a Herdr plugin.
+#
+# Herdr owns the host surface: it validates this manifest, injects runtime
+# context, launches the commands below, and records their logs. Everything the
+# plugin does with Herdr it does back through the socket API. See
+# docs/plan/herdr-plugin.md for the design and docs/adr/0004-herdr-plugin-host.md
+# for why this repo took this shape.
+#
+#   herdr plugin link plugins/herdr-presence
+#   herdr plugin action list --plugin ansible.herd-rs
+#
+# Superseded by plugins/herd (TypeScript, id `ansible.herd`), which is where new
+# work goes. The ids differ so both can be linked at once — but do not run both
+# daemons against the same hub as the same login.
+
+id = "ansible.herd-rs"
+name = "Herd (Rust prototype)"
+version = "0.1.0"
+
+# The features this plugin uses — `pane.report_metadata` tokens, `agent.view.set`,
+# `plugin.pane.open` with a `popup` placement, and `terminal session observe` —
+# are all documented against 0.7.5, so that is the floor claimed here. Herdr
+# refuses to link a plugin whose minimum is newer than the running binary, so
+# lowering this is a change to make only after checking an older server really
+# does have them.
+min_herdr_version = "0.7.5"
+description = "See the herd, raise a hand, and teleport into a teammate's agent session"
+
+# Windows is missing rather than unsupported. The daemon speaks the Unix socket
+# directly because it needs a held-open subscription; a named-pipe transport in
+# crates/ansible-herd/src/herdr.rs is the whole of what Windows needs.
+platforms = ["linux", "macos"]
+
+# Build commands run on `plugin install` (not on `plugin link` — local authors
+# build their own tree). Requires a Rust toolchain; `herd` below falls back to a
+# debug build so `cargo build -p ansible-herd` is enough while developing.
+[[build]]
+command = ["cargo", "build", "--release", "-p", "ansible-herd"]
+
+# One-shot, idempotent, and it exits: the long-lived daemon is started detached.
+# Herdr is explicit that startup hooks are initializers rather than supervised
+# daemons, so `herd startup` checks a heartbeat file, spawns the daemon if it is
+# not already running, and returns.
+[[startup]]
+command = ["./herd", "startup"]
+
+# ---------------------------------------------------------------- panes
+#
+# The three surfaces that need to be looked at or typed into.
+
+# The herd. Overlay, so it opens over whatever you were doing and restores the
+# previous focus and zoom when it closes.
+[[panes]]
+id = "roster"
+title = "Herd"
+placement = "overlay"
+command = ["./herd", "roster"]
+
+# A live view of a teammate's session. Split, so it sits beside your own work
+# rather than replacing it. The roster opens this itself through
+# `plugin.pane.open`, passing HERD_KEY; opening it by hand watches whatever
+# HERD_KEY names.
+[[panes]]
+id = "teleport"
+title = "Teleport"
+placement = "split"
+command = ["./herd", "watch"]
+
+# "I need help, and here is why." A popup because it asks a question: it receives
+# all terminal input including Escape, and closes when the command exits, without
+# touching the tiled layout.
+[[panes]]
+id = "ask"
+title = "Ask for help"
+placement = "popup"
+width = "60%"
+height = 8
+command = ["./herd", "ask"]
+
+# ---------------------------------------------------------------- actions
+#
+# Actions are argv commands with no arguments and no prompt, so each one is a
+# single unambiguous decision. Anything that needs text is a pane above.
+#
+# Sharing is per-pane and comes from HERDR_PLUGIN_CONTEXT_JSON's focused pane, so
+# `share-live` applies to the pane you are looking at, not to everything.
+
+# Opening a pane needs an action, because Herdr's keybindings bind to actions.
+# These two are the ones worth a key.
+[[actions]]
+id = "roster"
+title = "Show the herd"
+contexts = ["workspace"]
+command = ["./herd", "open", "roster"]
+
+[[actions]]
+id = "ask"
+title = "Ask for help"
+contexts = ["workspace"]
+command = ["./herd", "open", "ask"]
+
+[[actions]]
+id = "share-live"
+title = "Share this session live"
+contexts = ["pane"]
+command = ["./herd", "status", "--share", "live"]
+
+[[actions]]
+id = "share-title"
+title = "Share headline only"
+contexts = ["pane"]
+command = ["./herd", "status", "--share", "title"]
+
+[[actions]]
+id = "share-off"
+title = "Stop publishing this session"
+contexts = ["pane"]
+command = ["./herd", "status", "--share", "off"]
+
+[[actions]]
+id = "lower-hand"
+title = "I'm unstuck"
+contexts = ["workspace"]
+command = ["./herd", "status", "--no-help"]
+
+[[actions]]
+id = "focus"
+title = "Sort agents by attention"
+contexts = ["workspace"]
+command = ["./herd", "focus"]
+
+[[actions]]
+id = "unfocus"
+title = "Restore the configured agent sort"
+contexts = ["workspace"]
+command = ["./herd", "unfocus"]
+
+[[actions]]
+id = "restart-daemon"
+title = "Restart the herd daemon"
+contexts = ["workspace"]
+command = ["./herd", "startup"]
+
+# ---------------------------------------------------------------- events
+#
+# Deliberately none.
+#
+# An event hook spawns a process per event, and the states worth reacting to —
+# `pane.agent_status_changed` above all — are the ones that fire most. The daemon
+# holds a single `events.subscribe` connection instead and reconciles from a fresh
+# snapshot, which costs one process for the whole session rather than one per
+# transition. If that subscription is ever refused, the daemon says so and falls
+# back to polling; it does not need a hook to survive.

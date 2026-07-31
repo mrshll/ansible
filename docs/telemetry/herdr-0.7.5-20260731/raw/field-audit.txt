@@ -1,0 +1,29 @@
+=== collections on session.snapshot ===
+  workspaces/workspace_records                  MISSING
+  tabs/tab_records                              MISSING
+  panes/pane_records                            MISSING
+  agents/agent_records                          MISSING
+
+  focused_pane_id: MISSING
+
+[agent record (from session.snapshot)]
+  (no rows to inspect)
+
+[agent record (from agent.list)]
+  keys present: agent, agent_status, cwd, focused, foreground_cwd, pane_id, revision, state_change_seq, tab_id, terminal_id, terminal_title, terminal_title_stripped, workspace_id
+  pane_id                                       OK via 'pane_id'
+  workspace_id                                  OK via 'workspace_id'
+  tab_id                                        OK via 'tab_id'
+  display_agent/agent/kind/agent_kind           OK via 'agent'
+  agent_status/status/state                     OK via 'agent_status'
+  terminal_title_stripped/terminal_title        OK via 'terminal_title_stripped'
+  foreground_cwd/cwd                            OK via 'foreground_cwd'
+
+[workspace record]
+  (no rows to inspect)
+
+[tab record]
+  (no rows to inspect)
+
+=== agent_status values observed ===
+  agent_status=working

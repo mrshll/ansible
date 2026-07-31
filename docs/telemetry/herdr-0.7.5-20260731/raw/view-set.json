@@ -1,0 +1,9 @@
+{
+  "id": "probe",
+  "result": {
+    "active": true,
+    "label": "probe",
+    "source": "probe:herd",
+    "type": "agent_view"
+  }
+}

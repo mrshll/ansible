@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+#
+# Every command in herdr-plugin.toml goes through here.
+#
+# Herdr runs plugin commands with the plugin directory as their working directory
+# and does not use a shell, so the manifest cannot resolve a build output path
+# conditionally. This finds the compiled entry point and says what to run if it is
+# missing.
+set -euo pipefail
+
+PLUGIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENTRY="$PLUGIN_DIR/dist/main.js"
+
+if [[ ! -f "$ENTRY" ]]; then
+  printf 'herd: %s is missing.\n' "$ENTRY" >&2
+  printf '      build it with:  npm run --workspace @ansible/herd build\n' >&2
+  exit 127
+fi
+
+exec node "$ENTRY" "$@"

@@ -1,0 +1,29 @@
+{
+  "name": "ansible",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A multiplayer presence layer for coding agents",
+  "workspaces": [
+    "plugins/herd",
+    "services/hub",
+    "services/transcript-worker"
+  ],
+  "type": "module",
+  "scripts": {
+    "check": "scripts/check-ts.sh",
+    "fmt": "oxfmt .",
+    "fmt:check": "oxfmt --check .",
+    "lint": "oxlint",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "oxfmt": "^0.61.0",
+    "oxlint": "^1.76.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.0"
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  }
+}

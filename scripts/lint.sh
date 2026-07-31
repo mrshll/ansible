@@ -73,14 +73,19 @@ if [[ -d services/hub-module ]]; then
   )
 fi
 
-# Likewise the Worker: TypeScript, so `tsc --noEmit` is its equivalent of clippy.
-# Skipped rather than failed when dependencies are not installed, so a Rust-only
-# checkout still lints cleanly.
-if [[ -f services/transcript-worker/node_modules/.package-lock.json ]]; then
-  step 'transcript-worker: tsc --noEmit'
-  (cd services/transcript-worker && npx tsc --noEmit)
+# The TypeScript half — the Herdr plugin, the SpacetimeDB module, and the Worker —
+# has its own three tools, and scripts/check-ts.sh is their single bar in the same
+# way this file is Rust's. Skipped rather than failed when node_modules is absent,
+# so a Rust-only checkout still lints cleanly.
+if [[ -d node_modules ]]; then
+  step 'scripts/check-ts.sh'
+  if [[ $FIX -eq 1 ]]; then
+    scripts/check-ts.sh --fix
+  else
+    scripts/check-ts.sh
+  fi
 else
-  printf 'transcript-worker: skipped (run `npm install` in services/transcript-worker)\n'
+  printf 'typescript: skipped (run `npm install`)\n'
 fi
 
 printf '\033[32mlint: clean\033[0m\n'

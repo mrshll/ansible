@@ -1,0 +1,36 @@
+[package]
+name = "ansible-herd"
+description = "Team presence for coding agents, as a Herdr plugin: publish local agent state to a team hub, show the herd, and teleport into a teammate's session"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# A binary, not a library. Herdr launches plugins as argv commands, so every
+# entrypoint this crate has is a subcommand of one executable — there is no
+# consumer to expose a library API to. Tests live inline with the modules they
+# cover, which is also where the existing crates keep most of theirs.
+[[bin]]
+name = "ansible-herd"
+path = "src/main.rs"
+
+[dependencies]
+# The redactor. Everything published to the hub — headlines, comments, and every
+# byte of a shared terminal — goes through it first, so the crate that was built
+# for the transcript path is reused verbatim rather than re-derived.
+ansible-capture = { path = "../ansible-capture" }
+anyhow.workspace = true
+base64 = "0.22"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The plugin manifest is TOML because Herdr requires it, so the plugin's own
+# config file is TOML too rather than making a user learn two formats.
+toml = "0.9"
+
+# Inherits the workspace lints, including `unsafe_code = "forbid"`. The daemon is
+# threads, sockets, and JSON; nothing here needs unsafe. Notably that rules out
+# raw-mode terminal input by hand, which is why the roster is a line-driven view
+# rather than a full-screen TUI — see the note in `roster.rs`.
+[lints]
+workspace = true

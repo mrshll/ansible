@@ -1,0 +1,17 @@
+{
+  "name": "@ansible/herd",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Team presence for coding agents, as a Herdr plugin",
+  "bin": {
+    "ansible-herd": "dist/main.js"
+  },
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p .",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "smol-toml": "^1.4.2"
+  }
+}
