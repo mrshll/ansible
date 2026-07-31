@@ -28,6 +28,8 @@ use anyhow::{Context, Result};
 
 use crate::clock::now_ms;
 use crate::config::{Config, METADATA_SOURCE, Paths};
+use std::sync::mpsc::Sender;
+
 use crate::herdr::{Client, Events, PaneAgent, socket_path};
 use crate::hub::Hub;
 use crate::model::{
@@ -65,6 +67,16 @@ pub struct Daemon {
     publishers: BTreeMap<String, crate::teleport::LivePublisher>,
     /// Repo names resolved from cwd, cached because it costs a process spawn.
     repos: BTreeMap<String, Option<String>>,
+    /// The current per-pane event subscription, and the channel it nudges.
+    ///
+    /// Herdr requires a `pane_id` on every subscription — there is no wildcard
+    /// stream (`scripts/probe-herdr.sh` check D1) — so the set of panes has to be
+    /// discovered by polling and the subscription replaced whenever it changes.
+    events: Option<Events>,
+    nudge: Option<Sender<()>>,
+    /// Whether we have already said that toasts are switched off, so the warning
+    /// is said once rather than every poll.
+    warned_notifications_off: bool,
 }
 
 impl Daemon {
@@ -90,6 +102,9 @@ impl Daemon {
             reported: BTreeMap::new(),
             publishers: BTreeMap::new(),
             repos: BTreeMap::new(),
+            events: None,
+            nudge: None,
+            warned_notifications_off: false,
         })
     }
 
@@ -106,17 +121,8 @@ impl Daemon {
     /// hub. Everything transient is logged to stderr and retried, because a daemon
     /// that exits when the hub blips takes the whole team's presence with it.
     pub fn run(&mut self, once: bool) -> Result<()> {
-        let socket = socket_path();
         let (tx, rx) = std::sync::mpsc::channel();
-        if let Err(err) = Events::spawn(&socket, tx) {
-            // Not fatal, and worth saying out loud once: this is the difference
-            // between sub-second and one-second reaction time, not between working
-            // and not working.
-            eprintln!(
-                "herd: no event subscription ({err}); polling every {}ms",
-                self.config.timing.reconcile_ms
-            );
-        }
+        self.nudge = Some(tx);
 
         loop {
             let now = now_ms();
@@ -170,6 +176,8 @@ impl Daemon {
                 return Err(err).context("reading agents from Herdr");
             }
         };
+
+        self.resubscribe(&panes);
 
         let cards = self.build_cards(&panes, &overrides, now);
         let changed = self.last_published.as_ref() != Some(&cards);
@@ -235,6 +243,35 @@ impl Daemon {
             }
         }
         cards
+    }
+
+    /// Keep the event subscription pointed at exactly the panes that exist.
+    ///
+    /// Cheap when nothing changed — the common case — because it compares the pane
+    /// list against what the live subscription already covers and does nothing.
+    fn resubscribe(&mut self, panes: &[PaneAgent]) {
+        let ids: Vec<String> = panes.iter().map(|p| p.pane_id.clone()).collect();
+        if self.events.as_ref().is_some_and(|e| e.covers(&ids)) {
+            return;
+        }
+        // Drop first: closing the old connection ends its reader thread, so a
+        // long-lived daemon does not accumulate one per pane change.
+        self.events = None;
+        if ids.is_empty() {
+            return;
+        }
+        let Some(tx) = self.nudge.clone() else { return };
+        match Events::spawn(&socket_path(), &ids, tx) {
+            Ok(events) => self.events = Some(events),
+            Err(err) => {
+                // Not fatal: this is the difference between sub-second and
+                // one-second reaction time, not between working and not working.
+                eprintln!(
+                    "herd: no event subscription ({err}); polling every {}ms",
+                    self.config.timing.reconcile_ms
+                );
+            }
+        }
     }
 
     /// When this pane entered its current status.
@@ -403,9 +440,11 @@ impl Daemon {
                         } else {
                             card.headline.clone()
                         };
-                        if let Ok(client) = self.client_mut() {
-                            let _ = client.notify(&title, &body, true);
-                        }
+                        let reason = self
+                            .client_mut()
+                            .and_then(|client| client.notify(&title, &body, true))
+                            .unwrap_or_else(|_| "unreachable".into());
+                        self.warn_if_notifications_off(&reason);
                     }
                     None => {
                         announced.remove(&card.key);
@@ -435,15 +474,36 @@ impl Daemon {
             };
             let pane =
                 crate::model::split_key(&message.to_key).map(|(_, _, pane)| pane.to_string());
-            if let Ok(client) = self.client_mut() {
-                let _ = client.notify(&title, &message.body, true);
-            }
+            let reason = self
+                .client_mut()
+                .and_then(|client| client.notify(&title, &message.body, true))
+                .unwrap_or_else(|_| "unreachable".into());
+            self.warn_if_notifications_off(&reason);
             if let Some(pane_id) = pane {
                 let note = normalize(&format!("{}: {}", message.from, message.body), MAX_DISPLAY);
                 self.report_note(&pane_id, &note)?;
             }
         }
         Ok(())
+    }
+
+    /// Say once, loudly, when the host is not showing toasts.
+    ///
+    /// Observed on a real machine: `notification.show` returned
+    /// `reason: "disabled"`, meaning `ui.toast.delivery = "off"`. Everything else
+    /// works and nothing errors — the summons simply never arrives, which is the
+    /// worst possible failure for the one feature meant to fetch a human. So it is
+    /// reported, with the setting to change.
+    fn warn_if_notifications_off(&mut self, reason: &str) {
+        if reason != "disabled" || self.warned_notifications_off {
+            return;
+        }
+        self.warned_notifications_off = true;
+        eprintln!(
+            "herd: this Herdr has toasts switched off (notification.show -> disabled), so \
+             nobody will be told when a teammate is blocked. Set ui.toast.delivery in your \
+             Herdr config to `herdr`, `terminal`, or `system`."
+        );
     }
 
     /// Patch pane tokens, skipping the call when nothing changed.
@@ -644,6 +704,7 @@ mod tests {
             terminal_title: title.map(str::to_string),
             cwd: None,
             branch: None,
+            state_change_seq: None,
         }
     }
 

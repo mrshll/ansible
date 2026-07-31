@@ -51,7 +51,7 @@ ansible-herd — team presence for coding agents, hosted by Herdr
     --clear-headline       go back to the terminal title
     --help-wanted TEXT     raise a hand, with a note
     --no-help              lower it
-    --share off|title|live what this pane publishes (needs HERDR_PANE_ID)
+    --share off|title|live what this pane publishes (uses the focused pane)
   watch <n|key>            teleport into a session
   comment <n|key> TEXT     send a comment, optionally --line N
   nudge <n|key>            'look at this', with no body
@@ -156,7 +156,7 @@ fn cmd_doctor(paths: &Paths) -> Result<()> {
     print!("herdr      {} — ", socket.display());
     match herdr::Client::connect(&socket).and_then(|mut c| c.ping()) {
         Ok(version) => {
-            println!("ok{}", version.map(|v| format!(" (protocol {v})")).unwrap_or_default());
+            println!("ok{}", version.map(|v| format!(" — {v}")).unwrap_or_default());
         }
         Err(err) => println!("unreachable: {err:#}"),
     }
@@ -185,6 +185,24 @@ fn daemon_alive(store: &Store, now: u64) -> bool {
 
 /// Start the daemon unless it is already up. Safe to run repeatedly, which is
 /// what Herdr's `[[startup]]` contract asks for.
+///
+/// # Why this goes through `setsid`
+///
+/// The first version used a plain `Command::spawn`, and a real Herdr proved it does
+/// not survive: after a restart, `pgrep -f 'ansible-herd daemon'` found nothing
+/// (`scripts/probe-herdr.sh` check K5). A startup hook is a one-shot initializer and
+/// Herdr reaps what it started, so a child in the hook's own process group goes with
+/// it.
+///
+/// `setsid` is the fix: it puts the daemon in a new session with no controlling
+/// terminal, so it is no longer in the group Herdr signals. When `setsid` is not on
+/// PATH the plain spawn is still attempted, because a daemon that might die is
+/// better than no daemon and the next `startup` will notice and retry.
+///
+/// If this still turns out not to survive on some platform, the fallbacks in order
+/// of preference are: run the daemon as a `[[panes]]` entrypoint in a `tab` pane, so
+/// Herdr owns its lifetime deliberately; or install a user-level service (systemd
+/// `--user`, launchd) and let `startup` only ensure it is enabled.
 fn cmd_startup(paths: &Paths) -> Result<()> {
     let store = Store::new(&paths.state_dir);
     if daemon_alive(&store, now_ms()) {
@@ -197,18 +215,49 @@ fn cmd_startup(paths: &Paths) -> Result<()> {
         .append(true)
         .open(store.log_file())
         .with_context(|| format!("opening {}", store.log_file().display()))?;
-    let child = std::process::Command::new(exe)
-        .arg("daemon")
+
+    let detach = which_setsid();
+    let mut command = if let Some(setsid) = &detach {
+        let mut c = std::process::Command::new(setsid);
+        c.arg(&exe).arg("daemon");
+        c
+    } else {
+        let mut c = std::process::Command::new(&exe);
+        c.arg("daemon");
+        c
+    };
+    let child = command
         .stdin(std::process::Stdio::null())
         .stdout(log.try_clone()?)
         .stderr(log)
         .spawn()
         .context("starting the herd daemon")?;
-    // The startup hook is a one-shot initializer, so it records the pid and
-    // exits; the daemon outlives it.
+
     std::fs::write(store.pid_file(), child.id().to_string())?;
-    println!("herd daemon started (pid {}), logging to {}", child.id(), store.log_file().display());
+    println!(
+        "herd daemon started (pid {}{}), logging to {}",
+        child.id(),
+        if detach.is_some() {
+            ", detached via setsid"
+        } else {
+            ", NOT detached — may not survive"
+        },
+        store.log_file().display()
+    );
+    if detach.is_none() {
+        eprintln!(
+            "herd: setsid is not on PATH, so the daemon stays in this process group and \
+             Herdr may reap it when the startup hook exits. Install util-linux, or run \
+             `ansible-herd daemon` yourself."
+        );
+    }
     Ok(())
+}
+
+/// Find `setsid`, without assuming a path.
+fn which_setsid() -> Option<std::path::PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path).map(|dir| dir.join("setsid")).find(|candidate| candidate.is_file())
 }
 
 fn cmd_daemon(paths: &Paths, once: bool) -> Result<()> {
@@ -280,9 +329,26 @@ fn cmd_status(paths: &Paths, args: &[String]) -> Result<()> {
     Ok(())
 }
 
-/// The pane this process is running in, as Herdr injects it.
+/// The pane this command should act on.
+///
+/// `HERDR_PANE_ID` when Herdr injects it — which it does for a pane entrypoint —
+/// and otherwise `focused_pane_id` out of `HERDR_PLUGIN_CONTEXT_JSON`. A
+/// `contexts = ["workspace"]` action is invoked without a pane of its own, and the
+/// recorded context from a real invocation shows exactly what it does get:
+/// `focused_pane_id`, `focused_pane_agent`, `focused_pane_status`, `workspace_id`,
+/// `tab_id`, and `invocation_source`. Without this fallback, `--share` fails from
+/// every keybinding.
 fn current_pane() -> Option<String> {
-    std::env::var("HERDR_PANE_ID").ok().filter(|v| !v.is_empty())
+    if let Some(pane) = std::env::var("HERDR_PANE_ID").ok().filter(|v| !v.is_empty()) {
+        return Some(pane);
+    }
+    let context = std::env::var("HERDR_PLUGIN_CONTEXT_JSON").ok()?;
+    let parsed: serde_json::Value = serde_json::from_str(&context).ok()?;
+    parsed
+        .get("focused_pane_id")
+        .and_then(serde_json::Value::as_str)
+        .filter(|v| !v.is_empty())
+        .map(String::from)
 }
 
 /// Ask Herdr to open one of our own manifest panes.

@@ -1,0 +1,12 @@
+{
+  "id": "probe",
+  "result": {
+    "capabilities": {
+      "detached_server_daemon": true,
+      "live_handoff": true
+    },
+    "protocol": 17,
+    "type": "pong",
+    "version": "0.7.5"
+  }
+}

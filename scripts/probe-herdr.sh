@@ -276,13 +276,19 @@ else
     "crates/ansible-herd/src/herdr.rs:call"
 fi
 
-PROTO="$(get "$OUT/raw/ping.json" result.protocol_version)"
-if [[ -n "$PROTO" ]]; then
-  check A3 socket pass "\`ping\` reports a protocol version as \`protocol_version\`" "$PROTO" \
-    "raw/ping.json" "crates/ansible-herd/src/herdr.rs:ping"
+# Observed: `version` is a string, `protocol` is a number, and there is a
+# `capabilities` object. `live_handoff` in particular is worth reading — it means a
+# server can be replaced under a running daemon.
+PROTO="$(get "$OUT/raw/ping.json" result.protocol)"
+VER="$(get "$OUT/raw/ping.json" result.version)"
+CAPS="$(get "$OUT/raw/ping.json" result.capabilities)"
+if [[ -n "$PROTO" || -n "$VER" ]]; then
+  check A3 socket pass "\`ping\` reports \`version\` and a numeric \`protocol\`" \
+    "version=$VER protocol=$PROTO capabilities=$CAPS" "raw/ping.json" \
+    "crates/ansible-herd/src/herdr.rs:ping"
 else
-  check A3 socket fail "\`ping\` reports a protocol version as \`protocol_version\`" \
-    "absent; whole result: $(get "$OUT/raw/ping.json" result)" "raw/ping.json" \
+  check A3 socket fail "\`ping\` reports \`version\` and a numeric \`protocol\`" \
+    "neither present; whole result: $(get "$OUT/raw/ping.json" result)" "raw/ping.json" \
     "crates/ansible-herd/src/herdr.rs:ping"
 fi
 
@@ -326,10 +332,19 @@ python3 - "$OUT/raw/session-snapshot.json" "$OUT/raw/agent-list.json" > "$OUT/ra
 import json, sys
 
 def load(path):
+    """The payload, unwrapped.
+
+    Observed on 0.7.5: `session.snapshot` nests everything under
+    `result.snapshot`, while `agent.list` and `pane.list` put their array
+    directly on `result`. Handling both means this audit keeps working whichever
+    shape a future release picks.
+    """
     try:
-        return json.load(open(path)).get("result") or {}
+        result = json.load(open(path)).get("result") or {}
     except Exception:
         return {}
+    inner = result.get("snapshot")
+    return inner if isinstance(inner, dict) else result
 
 snap, agents_only = load(sys.argv[1]), load(sys.argv[2])
 
@@ -439,17 +454,29 @@ else
     "plugins/herd/src/model.ts:statusFromHerdr"
 fi
 
-FOCUSED="$(get "$OUT/raw/session-snapshot.json" result.focused_pane_id)"
-AGENT_PANE="$(python3 - "$OUT/raw/session-snapshot.json" <<'PY'
+FOCUSED="$(get "$OUT/raw/session-snapshot.json" result.snapshot.focused_pane_id)"
+[[ -n "$FOCUSED" ]] || FOCUSED="$(get "$OUT/raw/session-snapshot.json" result.focused_pane_id)"
+# Look in both envelopes, and fall back to agent.list, so one shape change cannot
+# empty every later check the way it did on the first run.
+AGENT_PANE="$(python3 - "$OUT/raw/session-snapshot.json" "$OUT/raw/agent-list.json" <<'PY'
 import json, sys
-try:
-    res = json.load(open(sys.argv[1])).get("result") or {}
-except Exception:
-    res = {}
-for key in ("agents", "agent_records"):
-    for row in res.get(key, []) or []:
-        if isinstance(row, dict) and row.get("pane_id"):
-            print(row["pane_id"]); raise SystemExit
+
+def payloads(path):
+    try:
+        result = json.load(open(path)).get("result") or {}
+    except Exception:
+        return []
+    out = [result]
+    if isinstance(result.get("snapshot"), dict):
+        out.append(result["snapshot"])
+    return out
+
+for path in sys.argv[1:]:
+    for body in payloads(path):
+        for key in ("agents", "agent_records", "panes", "pane_records"):
+            for row in body.get(key, []) or []:
+                if isinstance(row, dict) and row.get("pane_id") and row.get("agent"):
+                    print(row["pane_id"]); raise SystemExit
 print("")
 PY
 )"
@@ -546,6 +573,34 @@ else
   check D1 events unknown "\`events.subscribe\` accepts a subscription with no \`pane_id\` filter" \
     "no ack at all within 12s" "raw/events-wildcard.ndjson" "crates/ansible-herd/src/herdr.rs:Events::spawn"
 fi
+
+# Each type on its own, because the aggregate error names only the first offender.
+# If `pane.created` requires a pane_id then new panes can never be discovered by
+# subscription, and a poll is not a fallback but the only option.
+: > "$OUT/raw/event-type-audit.txt"
+for etype in pane.agent_status_changed pane.updated pane.created pane.closed pane.focused pane.exited workspace.created tab.created; do
+  RESULT="$(python3 - "$SOCKET" "$etype" <<'ONE'
+import json, socket, sys
+req = {"id": "probe-one", "method": "events.subscribe",
+       "params": {"subscriptions": [{"type": sys.argv[2]}]}}
+try:
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+        s.settimeout(3)
+        s.connect(sys.argv[1])
+        s.sendall((json.dumps(req) + "\n").encode())
+        print(s.recv(65536).decode("utf-8", "replace").strip().replace("\n", " ")[:200])
+except Exception as exc:  # noqa: BLE001
+    print(f"probe error: {exc}")
+ONE
+)"
+  printf '%-32s %s\n' "$etype" "$RESULT" >> "$OUT/raw/event-type-audit.txt"
+done
+cat "$OUT/raw/event-type-audit.txt"
+NEEDS_PANE="$(grep -c 'missing field .pane_id' "$OUT/raw/event-type-audit.txt" || true)"
+TOTAL_TYPES="$(wc -l < "$OUT/raw/event-type-audit.txt" | tr -d ' ')"
+check D4 events info "which event types require a \`pane_id\`" \
+  "$NEEDS_PANE of $TOTAL_TYPES types rejected an unfiltered subscription — see the audit" \
+  "raw/event-type-audit.txt" "crates/ansible-herd/src/herdr.rs:Events::spawn"
 
 EVENT_NAMES="$(python3 - "$OUT/raw/events-wildcard.ndjson" <<'PY'
 import json, sys
@@ -882,13 +937,32 @@ if [[ "$go" == y || "$go" == Y ]]; then
     "$HERDR" plugin action invoke ansible.herd.doctor > "$OUT/raw/action-invoke.txt" 2>&1 || true
     sleep 2
     "$HERDR" plugin log list --plugin ansible.herd --limit 20 > "$OUT/raw/plugin-log.txt" 2>&1 || true
-    if grep -q 'HERDR_' "$OUT/raw/plugin-log.txt" 2>/dev/null; then
-      check K3 plugin pass "an action's log captures the injected HERDR_* environment" "captured" \
-        "raw/plugin-log.txt" "plugins/herd/src/paths.ts"
+    # The interesting artefact is the invocation *context* Herdr builds, because a
+    # `contexts = ["workspace"]` action gets no pane of its own and has to read
+    # `focused_pane_id` out of it. Grepping the log for HERDR_ was the wrong test:
+    # the log holds the command's stdout, not its environment.
+    CONTEXT_KEYS="$(get "$OUT/raw/action-invoke.json" result.context 2>/dev/null)"
+    [[ -n "$CONTEXT_KEYS" ]] || CONTEXT_KEYS="$(python3 - "$OUT/raw/action-invoke.txt" <<'CTX'
+import json, sys
+try:
+    ctx = json.load(open(sys.argv[1]))["result"]["context"]
+    print(",".join(sorted(ctx.keys())))
+except Exception:
+    print("")
+CTX
+)"
+    if printf '%s' "$CONTEXT_KEYS" | grep -q focused_pane_id; then
+      check K3 plugin pass "the invocation context carries \`focused_pane_id\`, which a workspace-context action needs" \
+        "$CONTEXT_KEYS" "raw/action-invoke.txt" "crates/ansible-herd/src/main.rs:current_pane"
     else
-      check K3 plugin unknown "an action's log captures the injected HERDR_* environment" \
-        "nothing obvious in the log — see raw/plugin-log.txt and raw/action-invoke.txt" \
-        "raw/plugin-log.txt" "plugins/herd/src/paths.ts"
+      check K3 plugin fail "the invocation context carries \`focused_pane_id\`" \
+        "context keys: ${CONTEXT_KEYS:-none found} — \`--share\` cannot resolve a pane from a keybinding" \
+        "raw/action-invoke.txt" "crates/ansible-herd/src/main.rs:current_pane"
+    fi
+    if grep -q 'herdr.sock' "$OUT/raw/plugin-log.txt" 2>/dev/null; then
+      check K6 plugin pass "the plugin runs under Herdr and receives \`HERDR_SOCKET_PATH\`" \
+        "the action's own output names the socket it was given" "raw/plugin-log.txt" \
+        "plugins/herd/src/paths.ts"
     fi
 
     ask K4 plugin "an overlay pane entrypoint opens and restores focus when it closes" \
@@ -896,10 +970,22 @@ if [[ "$go" == y || "$go" == Y ]]; then
      Did the herd render, and did closing it put you back where you were?" \
       "plugins/herd/herdr-plugin.toml"
 
-    ask K5 plugin "a \`[[startup]]\` hook can leave a detached daemon running after it exits" \
-      "This is the one that decides whether the daemon design works at all. Restart Herdr, then run:
+    # A plain spawn was measured *not* to survive, so `startup` now goes through
+    # `setsid`. This asks whether that was enough.
+    if command -v setsid >/dev/null 2>&1; then
+      check K5a plugin pass "\`setsid\` is available, so the daemon can leave the hook's process group" \
+        "$(command -v setsid)" "" "crates/ansible-herd/src/main.rs:cmd_startup"
+    else
+      check K5a plugin fail "\`setsid\` is available, so the daemon can leave the hook's process group" \
+        "not on PATH — the daemon needs a pane or a user service on this machine instead" "" \
+        "crates/ansible-herd/src/main.rs:cmd_startup"
+    fi
+    ask K5 plugin "a setsid-detached daemon survives its \`[[startup]]\` hook exiting" \
+      "This decides whether the daemon design works at all. Link the Rust plugin, restart Herdr,
+     and check:
+       herdr plugin link plugins/herdr-presence && herdr kill && herdr
        pgrep -laf 'ansible-herd daemon' || echo 'no daemon'
-     Does a detached daemon survive its startup hook's exit? (n if Herdr kills the process group)" \
+     Does it survive now? (A plain spawn did not; startup now uses setsid.)" \
       "crates/ansible-herd/src/main.rs:cmd_startup"
 
     printf '     unlink again? [Y/n] > '

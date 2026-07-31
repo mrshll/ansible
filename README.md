@@ -57,6 +57,10 @@ scripts/demo-herd.sh      # presence, teleport, and a comment, in one terminal
   what Herdr replaces, what it costs, the teleport handshake, and the consent ladder.
 - [ADR 0004 — Herdr as the host](docs/adr/0004-herdr-plugin-host.md) — Herdr owns
   the panes and the status; this project owns the team.
+- [Herdr probe findings](docs/plan/herdr-plugin.md#what-the-telemetry-said) —
+  **run against 0.7.5.** 10 pass, 4 fail, all four fixed: the snapshot envelope, no
+  wildcard event stream, a startup hook's child not surviving, and `ping`'s real
+  fields.
 - [ADR 0005 — TypeScript for everything we write](docs/adr/0005-typescript-and-the-herdr-host.md)
   — **in progress.** The plugin and the SpacetimeDB module in TypeScript 7 with
   oxlint and oxfmt; the deployed infrastructure and its architecture are what get

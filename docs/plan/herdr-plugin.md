@@ -271,24 +271,105 @@ The two files worth reading first are `raw/field-audit.txt` — every field name
 parsers reach for, and which one was actually there — and `raw/frame-audit.txt`,
 which says which field carries terminal bytes in an observe frame.
 
-**Known-unverified, in the order they would hurt.** The check id in brackets is
-where the probe reports on it.
+## What the telemetry said
 
-1. **Whether `events.subscribe` accepts a subscription with no `pane_id` filter**
-   [D1]. If not, the daemon polls — designed for, not fatal, but a second of
-   latency on the status that matters most. The probe also tries the scoped form
-   [D2], which is the fallback shape.
-2. **The `terminal.frame` payload field name** [I2]. The code probes five
-   plausible names; if none match, teleport publishes nothing and the fix is one
-   line.
-3. **`session.snapshot`'s field names** [B2]. Wrong names cost labels, not rows —
-   the audit distinguishes a genuinely missing required field from an optional
-   override that simply was not set.
-4. **`min_herdr_version = "0.7.5"`** [K1]. Herdr refuses to link a plugin claiming
-   a version newer than the binary, so this is a hard gate on a guess.
-5. **Whether a `[[startup]]` hook's detached grandchild survives** [K5]. This one
-   decides whether the daemon design works at all. If Herdr kills the process
-   group, the daemon needs a different launch — a visible pane, or an OS service.
+`scripts/probe-herdr.sh` was run against Herdr **0.7.5, protocol 17** on Linux.
+**10 pass, 4 fail, 8 unanswered.** All four failures are fixed; the section below is
+kept as the record, because every one of them was a documented-behaviour guess and
+the shape of the fix is more interesting than the bug.
+
+### The envelope, not the field names (B2)
+
+`session.snapshot` returns `{"type": …, "snapshot": {agents, panes, tabs,
+workspaces, layouts, focused_pane_id, …}}` — one level deeper than the parser
+assumed. Every *field name* inside was right on the first guess: `pane_id`,
+`workspace_id`, `tab_id`, `agent`, `agent_status`, `terminal_title_stripped`,
+`foreground_cwd`. So the fix was one line, and the failure was maximally
+misleading: an empty pane list cascaded into five other checks reporting "no pane to
+work with", which is how one nesting level came back looking like six broken
+features. The probe made the same mistake and now handles both shapes.
+
+Two things the recording added that documentation had not:
+
+- **Agent records carry `state_change_seq`.** Herdr's own transition counter, which
+  is a better change detector than comparing status strings — it also catches a
+  transition that lands back on the same state, which is what an approval answered
+  and immediately re-raised looks like.
+- **Workspace rows carry no `cwd` and no worktree provenance.** They are
+  `{workspace_id, label, number, focused, agent_status, pane_count, tab_count,
+  active_tab_id}`. So repo and branch have to come from the pane's own `cwd` and
+  `foreground_cwd`, both of which are there.
+
+### There is no wildcard event stream (D1)
+
+An unfiltered subscription is rejected outright:
+
+```json
+{"error":{"code":"invalid_request","message":"invalid request: missing field `pane_id`"}}
+```
+
+This is the one that changed the design rather than a line of it. The daemon now
+**polls the snapshot to discover panes and subscribes per pane** for their
+transitions, replacing the subscription whenever the pane set moves. Discovery is a
+local-socket call, which is cheap; transitions are where a second of latency would be
+felt, and those are still pushed. Check D4 now probes each event type separately,
+because if `pane.created` also requires a `pane_id` then new panes can *only* ever be
+discovered by polling — worth knowing rather than inferring.
+
+### A plain spawn does not outlive its startup hook (K5)
+
+After a restart, `pgrep -f 'ansible-herd daemon'` found nothing. A `[[startup]]` hook
+is a one-shot initializer and Herdr reaps what it started, so a child in the hook's
+process group goes with it. `startup` now launches through **`setsid`**, which puts
+the daemon in a new session outside that group; when `setsid` is absent it says so
+rather than pretending. If that still is not enough, the fallbacks in preference
+order are a `[[panes]]` entrypoint in a `tab` pane — Herdr owning the lifetime
+deliberately — or a user-level service that `startup` only ensures is enabled.
+
+### `ping` says `version` and `protocol` (A3)
+
+`{"type":"pong","version":"0.7.5","protocol":17,"capabilities":{"live_handoff":true,
+"detached_server_daemon":true}}`. The code looked for `protocol_version` and found
+nothing — cosmetic, since only `doctor` printed it. The useful discovery is
+`capabilities`: **`live_handoff`** means a server can be replaced under a running
+daemon, which is exactly the event that makes its socket vanish mid-tick. The daemon
+already reconnects on any failed call, so this is a confirmation rather than a change.
+
+### Toasts can be switched off, and were (F1)
+
+`notification.show` returned `reason: "disabled"` — `ui.toast.delivery = "off"` on
+that machine. Nothing errors and everything else works; the summons simply never
+arrives, which is the worst available failure for the one feature meant to fetch a
+human. The daemon now says so once, naming the setting.
+
+### What passed, and is now observation rather than hope
+
+The socket path resolution, id echo and `error.code`/`error.message` shape,
+`session.snapshot` and `agent.list` existing, the `agent_status` vocabulary being
+exactly `idle|working|blocked|done|unknown`, `agent.explain`,
+`pane.report_metadata` accepting `source`/`tokens`/`ttl_ms`/`seq` and reading back on
+`pane.get`, `null` clearing a token, `agent.view.set`/`clear` with `attention` and
+`state_change_seq` sort fields, and `min_herdr_version = "0.7.5"` being acceptable.
+
+**The manifest links cleanly and the TypeScript plugin ran inside Herdr** — the
+`npm` build, the `./herd` wrapper, and `node dist/main.js` all worked, and its
+`doctor` output came back through `plugin log list` with exit code 0. The recorded
+invocation context is `{focused_pane_id, focused_pane_agent, focused_pane_cwd,
+focused_pane_status, workspace_id, workspace_label, workspace_cwd, tab_id, tab_label,
+invocation_source, correlation_id}` — which found a real bug: a
+`contexts = ["workspace"]` action gets no `HERDR_PANE_ID`, so `--share` from a
+keybinding could never resolve a pane. It now falls back to `focused_pane_id` from
+the context.
+
+### Still unanswered
+
+Everything needing an agent pane went unanswered because of the envelope bug, so
+these are worth a second run now that it is fixed: whether a real permission prompt
+becomes `blocked` and how fast [C2], whether `pane.send_text` types without
+submitting [J1], whether observing steals focus [I4], and whether an overlay pane
+restores focus when it closes [K4]. The SpacetimeDB half is also still open — the
+CLI is present (2.7.0-hotfix3, note the skew against the 2.7.1 npm module library)
+but publish was skipped [L2].
 
 **What the probe cannot answer, and the commands for them.** These need eyes, a
 restart, or credentials.

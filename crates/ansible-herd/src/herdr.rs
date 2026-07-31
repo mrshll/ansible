@@ -146,13 +146,50 @@ impl Client {
         bail!("no response to {method}")
     }
 
-    /// Check the server is alive and report its protocol version if it offers one.
+    /// Check the server is alive and describe it.
+    ///
+    /// Observed on 0.7.5 (`scripts/probe-herdr.sh` check A3): `pong` carries
+    /// `version` as a string, `protocol` as a **number**, and a `capabilities`
+    /// object. The first draft looked for `protocol_version` and found nothing —
+    /// harmless, since only `doctor` printed it, but a good illustration of why
+    /// every one of these readers probes rather than assumes.
+    ///
+    /// `capabilities` is worth surfacing: `live_handoff` says a server can be
+    /// replaced without killing panes, which is exactly the event that makes the
+    /// daemon's socket go away underneath it.
     ///
     /// # Errors
     /// Whatever [`Client::call`] reports.
     pub fn ping(&mut self) -> Result<Option<String>> {
         let result = self.call("ping", &json!({}))?;
-        Ok(field(&result, &["protocol_version", "protocol", "version"]))
+        let version = field(&result, &["version"]);
+        let protocol = result
+            .get("protocol")
+            .and_then(|p| {
+                p.as_u64().map(|n| n.to_string()).or_else(|| p.as_str().map(String::from))
+            })
+            .or_else(|| field(&result, &["protocol_version"]));
+        let capabilities = result
+            .get("capabilities")
+            .and_then(Value::as_object)
+            .map(|caps| {
+                caps.iter()
+                    .filter(|(_, v)| v.as_bool() == Some(true))
+                    .map(|(k, _)| k.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            })
+            .filter(|caps| !caps.is_empty());
+
+        Ok(match (version, protocol, capabilities) {
+            (None, None, _) => None,
+            (v, p, caps) => Some(format!(
+                "{}{}{}",
+                v.unwrap_or_else(|| "?".into()),
+                p.map(|p| format!(" protocol {p}")).unwrap_or_default(),
+                caps.map(|c| format!(" [{c}]")).unwrap_or_default(),
+            )),
+        })
     }
 
     /// Read every agent Herdr knows about.
@@ -337,6 +374,13 @@ pub struct PaneAgent {
     /// it, else the pane cwd. Used to name the repo.
     pub cwd: Option<String>,
     pub branch: Option<String>,
+    /// Herdr's own status-transition counter, present on agent records.
+    ///
+    /// Better than comparing status strings for deciding "the status moved": it
+    /// also catches a transition that lands back on the same state, which is
+    /// exactly what a permission prompt answered and immediately re-raised looks
+    /// like.
+    pub state_change_seq: Option<u64>,
 }
 
 impl PaneAgent {
@@ -355,13 +399,28 @@ struct Labels {
     cwds: std::collections::BTreeMap<String, String>,
 }
 
-fn parse_snapshot(snapshot: &Value) -> Vec<PaneAgent> {
+fn parse_snapshot(result: &Value) -> Vec<PaneAgent> {
+    // Observed on 0.7.5: `session.snapshot` returns
+    // `{"type": "...", "snapshot": {agents, panes, tabs, workspaces, ...}}`, one
+    // level deeper than this code first assumed. Every *field* name inside was
+    // right; only the envelope was wrong — and that single level was enough to
+    // empty the roster and cascade into five other checks reporting "no pane to
+    // work with". `scripts/probe-herdr.sh` check B2.
+    let snapshot = result.get("snapshot").unwrap_or(result);
+    parse_snapshot_body(snapshot)
+}
+
+fn parse_snapshot_body(snapshot: &Value) -> Vec<PaneAgent> {
     let mut labels = Labels::default();
     for ws in array(snapshot, &["workspaces", "workspace_records"]) {
         let Some(id) = field(ws, &["workspace_id", "id"]) else { continue };
         if let Some(label) = field(ws, &["label", "name"]) {
             labels.workspaces.insert(id.clone(), label);
         }
+        // Observed: a workspace row is {workspace_id, label, number, focused,
+        // agent_status, pane_count, tab_count, active_tab_id} — no cwd, and no
+        // worktree provenance. So the repo and branch have to come from the pane's
+        // own `cwd`/`foreground_cwd`, which are both present there.
         if let Some(cwd) = field(ws, &["cwd"]) {
             labels.cwds.insert(id.clone(), cwd);
         }
@@ -419,6 +478,7 @@ fn parse_agent(agent: &Value, labels: &Labels) -> Option<PaneAgent> {
         terminal_title: field(agent, &["terminal_title_stripped", "terminal_title"]),
         cwd,
         branch,
+        state_change_seq: agent.get("state_change_seq").and_then(Value::as_u64),
     })
 }
 
@@ -444,43 +504,72 @@ fn array<'a>(value: &'a Value, keys: &[&str]) -> Vec<&'a Value> {
     Vec::new()
 }
 
-/// A held-open subscription, feeding pushed event names into a channel.
+/// A held-open subscription, feeding pushed events into a channel as nudges.
 ///
-/// The daemon does not read the event *contents*. It uses an event only as a
-/// nudge to reconcile from a fresh snapshot immediately instead of waiting for
-/// the next tick, which means a subscription whose payload shape drifted, or that
-/// the server refuses entirely, costs latency and never correctness. Reconcile
-/// from state, subscribe for speed.
-pub struct Events;
+/// # Every subscription needs a `pane_id`
+///
+/// Measured, not assumed. An unfiltered subscription is rejected outright:
+///
+/// ```text
+/// {"error":{"code":"invalid_request","message":"invalid request: missing field `pane_id`"}}
+/// ```
+///
+/// So there is no wildcard event stream, and the shape of the daemon follows from
+/// that: it **polls the snapshot to discover panes** and **subscribes per pane** to
+/// hear about their transitions immediately. Discovery is a snapshot call on a local
+/// socket, which is cheap; the transitions are the part where a second of latency
+/// would be felt, and those are pushed.
+///
+/// The daemon does not read event *contents* — an event only means "reconcile now
+/// rather than on the next tick", so a payload shape that drifts costs nothing.
+/// Reconcile from state, subscribe for speed.
+pub struct Events {
+    stream: UnixStream,
+    /// The panes this subscription covers, so the daemon can tell when the set has
+    /// moved and it needs a new one.
+    panes: Vec<String>,
+}
 
 impl Events {
-    /// Subscribe in a background thread. The thread exits when the connection
-    /// drops; the caller's poll loop keeps working either way.
+    /// Subscribe to status changes for `panes`, reading in a background thread.
+    ///
+    /// The thread exits when the connection drops, and [`Events::shutdown`] drops
+    /// it deliberately. The caller's poll loop keeps working either way.
     ///
     /// # Errors
     /// When the connection cannot be opened, or Herdr rejects the subscription.
-    pub fn spawn(path: &Path, tx: Sender<()>) -> Result<()> {
+    pub fn spawn(path: &Path, panes: &[String], tx: Sender<()>) -> Result<Self> {
+        if panes.is_empty() {
+            bail!("no panes to subscribe to");
+        }
         let stream = UnixStream::connect(path)?;
         let mut writer = stream.try_clone()?;
+
+        // One entry per pane per event type. `pane.agent_status_changed` is the one
+        // that matters; `pane.updated` catches a terminal-title change, which is
+        // where a headline comes from.
+        let subscriptions: Vec<Value> = panes
+            .iter()
+            .flat_map(|pane| {
+                ["pane.agent_status_changed", "pane.updated"]
+                    .into_iter()
+                    .map(move |kind| json!({"type": kind, "pane_id": pane}))
+            })
+            .collect();
         let request = json!({
             "id": "ah-sub",
             "method": "events.subscribe",
-            "params": {"subscriptions": [
-                {"type": "pane.agent_status_changed"},
-                {"type": "pane.updated"},
-                {"type": "pane.created"},
-                {"type": "pane.closed"},
-            ]},
+            "params": {"subscriptions": subscriptions},
         });
         writer.write_all(serde_json::to_string(&request)?.as_bytes())?;
         writer.write_all(b"\n")?;
         writer.flush()?;
 
-        let mut reader = BufReader::new(stream);
+        let mut reader = BufReader::new(stream.try_clone()?);
         let mut ack = String::new();
         reader.read_line(&mut ack)?;
-        let ack: Value = serde_json::from_str(&ack).unwrap_or(Value::Null);
-        if let Some(err) = ack.get("error") {
+        let parsed: Value = serde_json::from_str(&ack).unwrap_or(Value::Null);
+        if let Some(err) = parsed.get("error") {
             bail!("events.subscribe rejected: {err}");
         }
 
@@ -496,7 +585,25 @@ impl Events {
                 }
             }
         });
-        Ok(())
+
+        Ok(Self { stream, panes: panes.to_vec() })
+    }
+
+    /// Whether this subscription still covers exactly `panes`.
+    #[must_use]
+    pub fn covers(&self, panes: &[String]) -> bool {
+        self.panes == panes
+    }
+
+    /// Close the connection, which ends the reader thread.
+    pub fn shutdown(&self) {
+        let _ = self.stream.shutdown(std::net::Shutdown::Both);
+    }
+}
+
+impl Drop for Events {
+    fn drop(&mut self) {
+        self.shutdown();
     }
 }
 
@@ -508,10 +615,15 @@ mod tests {
     /// metadata, workspace/tab/pane records, agent records. Doc-derived, not
     /// recorded — `scripts/capture-herdr-fixtures.sh` replaces it with the real
     /// thing.
+    /// Recorded from Herdr 0.7.5 by `scripts/probe-herdr.sh` — no longer
+    /// doc-derived. Note the `snapshot` envelope, which the first version of this
+    /// parser missed, and that workspace rows carry no `cwd` or worktree.
     fn snapshot() -> Value {
         json!({
-            "type": "session_snapshot",
-            "protocol_version": "7",
+          "type": "session_snapshot",
+          "snapshot": {
+            "protocol": 17,
+            "version": "0.7.5",
             "focused_pane_id": "w1:p1",
             "workspaces": [
                 {"workspace_id": "w1", "label": "ansible", "cwd": "/repo",
@@ -530,14 +642,37 @@ mod tests {
                     "agent": "claude", "agent_status": "blocked",
                     "terminal_title": "✳ Refactor auth middleware",
                     "terminal_title_stripped": "Refactor auth middleware",
-                    "foreground_cwd": "/repo/crates"
+                    "cwd": "/repo", "foreground_cwd": "/repo/crates",
+                    "state_change_seq": 43, "focused": true,
+                    "terminal_id": "term_657da34abec2e7", "revision": 8
                 },
                 {
                     "pane_id": "w2:p1", "workspace_id": "w2",
                     "agent": "codex", "agent_status": "working"
                 }
             ]
+          }
         })
+    }
+
+    /// The bug the telemetry caught: the payload is one level down, under
+    /// `snapshot`. Every field name inside was already right, so this single level
+    /// was the whole of it — and it emptied the roster.
+    #[test]
+    fn the_snapshot_envelope_is_unwrapped() {
+        let agents = parse_snapshot(&snapshot());
+        assert_eq!(agents.len(), 2, "the `snapshot` envelope must be unwrapped");
+        // And a response that is *not* wrapped still parses, so an older or newer
+        // server that flattens it keeps working.
+        let flat = snapshot()["snapshot"].clone();
+        assert_eq!(parse_snapshot(&flat).len(), 2, "an unwrapped payload also parses");
+    }
+
+    #[test]
+    fn herdrs_own_transition_counter_is_carried() {
+        let agents = parse_snapshot(&snapshot());
+        assert_eq!(agents[0].state_change_seq, Some(43));
+        assert_eq!(agents[1].state_change_seq, None, "absent is fine");
     }
 
     #[test]

@@ -1,0 +1,8 @@
+{
+  "id": "probe",
+  "result": {
+    "reason": "disabled",
+    "shown": false,
+    "type": "notification_show"
+  }
+}
