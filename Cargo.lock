@@ -52,6 +52,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ansible-herd"
+version = "0.1.0"
+dependencies = [
+ "ansible-capture",
+ "anyhow",
+ "base64 0.22.1",
+ "serde",
+ "serde_json",
+ "toml 0.9.12+spec-1.1.0",
+]
+
+[[package]]
 name = "ansible-hooks"
 version = "0.1.0"
 dependencies = [

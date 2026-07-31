@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/ansible-capture",
+    "crates/ansible-herd",
     "crates/ansible-hooks",
     "crates/ansible-terminal",
     "crates/ansible-transport",

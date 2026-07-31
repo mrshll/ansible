@@ -19,8 +19,17 @@ outside the real-time coordination database.
 
 ## Status
 
-Planning and de-risking. **Both spikes are complete**; product code has not
-started.
+Planning and de-risking. **Both spikes are complete.** There is now also a working
+prototype of the presence layer built a different way — as a plugin for
+[Herdr](https://herdr.dev), an agent multiplexer that already owns the panes, the
+agent detection, and the remote-attach story this app was going to build. See
+[ADR 0004](docs/adr/0004-herdr-plugin-host.md); the desktop-app plan below is not
+retired, but the plugin is the cheaper way to find out whether the *team* half is
+any good.
+
+```bash
+scripts/demo-herd.sh      # presence, teleport, and a comment, in one terminal
+```
 
 - [Architecture plan](docs/plan/multiplayer-hub.md) — repo layout and module
   boundaries, SpacetimeDB schema and reducer surface, session lifecycle data
@@ -43,6 +52,11 @@ started.
   relay; cursor-follow is the durable path, and the join splices by byte offset.
 - [ADR 0003 — read authorization](docs/adr/0003-read-authorization.md) — RLS is
   enforced and is the mechanism; no filtering intermediary.
+- [Herd — presence as a Herdr plugin](docs/plan/herdr-plugin.md) — **prototype
+  built.** The team layer on top of Herdr instead of on top of our own terminal:
+  what Herdr replaces, what it costs, the teleport handshake, and the consent ladder.
+- [ADR 0004 — Herdr as the host](docs/adr/0004-herdr-plugin-host.md) — Herdr owns
+  the panes and the status; this project owns the team.
 
 ### Spike A in one paragraph
 
@@ -138,6 +152,31 @@ reports a prompt being *dismissed*, which is why the terminal stays the producer
 scripts/probe-approval.sh                      # 18 assertions against a real session
 ```
 
+### The Herdr plugin in one paragraph
+
+`crates/ansible-herd` is a Herdr plugin — one binary, several manifest entrypoints —
+that publishes each machine's agent sessions to a team hub and renders the team as
+one ordered list. Herdr supplies the panes and the semantic status, so the
+`AwaitingApproval` problem two spikes went into arrives as its `blocked` for free,
+and `herdr terminal session observe` hands us base64 ANSI frames that go straight
+through `ansible-capture`'s redactor and chunker — teleport with no PTY of our own.
+Presence rides on a hub trait with two backends that need nothing stood up: a shared
+directory (sub-second, carries live frames) and **Git refs on a repo the team already
+has**, where `refs/herd/<login>` is disjoint per member so publishing cannot
+conflict, and push access *is* the authorization. Sharing defaults to headline-only;
+a teammate's comment reaches your inbox and can be *typed* into your composer unsent,
+but reaching your agent as a prompt needs a flag and a config edit. The socket client
+is written against Herdr's documentation rather than a recording — a real departure
+from this repo's convention — so every parser probes field names and degrades, and
+`scripts/capture-herdr-fixtures.sh` is how that gets fixed.
+
+```bash
+scripts/demo-herd.sh                           # the whole idea, no Herdr needed
+cargo test -p ansible-herd                     # 111 tests, incl. real-git round trips
+herdr plugin link plugins/herdr-presence       # with Herdr installed
+scripts/capture-herdr-fixtures.sh              # record the real socket shapes
+```
+
 ## Development
 
 One-time setup per clone, which points git at the versioned hooks in
@@ -184,3 +223,8 @@ it is wired in.
 | Transcript storage | Cloudflare R2, written through a Worker that also enforces access |
 | Auth | GitHub OAuth; org membership is hub membership |
 | Status events | Claude Code hooks, auto-configured by the app |
+
+The Herdr plugin ([ADR 0004](docs/adr/0004-herdr-plugin-host.md)) substitutes the
+first three rows and the last: Herdr owns the shell, the terminal, and the status,
+and presence rides on Git refs or a shared directory rather than SpacetimeDB. The
+transcript path is unchanged — `ansible-capture` is the same crate in both designs.

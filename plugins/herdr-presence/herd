@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+#
+# Every command in herdr-plugin.toml goes through here.
+#
+# Two reasons for the indirection. Herdr runs plugin commands with the plugin
+# directory as their working directory and does not use a shell, so a manifest
+# cannot contain `../../target/release/...` conditionally — and during development
+# the binary is a debug build while an installed plugin has a release one. This
+# picks whichever exists, newest first, and tells you what to run if neither does.
+set -euo pipefail
+
+PLUGIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$PLUGIN_DIR/../.." && pwd)"
+
+# An explicit override wins, for running a binary from anywhere.
+if [[ -n "${ANSIBLE_HERD_BIN:-}" ]]; then
+  exec "$ANSIBLE_HERD_BIN" "$@"
+fi
+
+RELEASE="$REPO_ROOT/target/release/ansible-herd"
+DEBUG="$REPO_ROOT/target/debug/ansible-herd"
+
+pick=""
+if [[ -x "$RELEASE" && -x "$DEBUG" ]]; then
+  # Newest wins, so `cargo build -p ansible-herd` during development takes effect
+  # without having to delete the release build.
+  if [[ "$DEBUG" -nt "$RELEASE" ]]; then pick="$DEBUG"; else pick="$RELEASE"; fi
+elif [[ -x "$RELEASE" ]]; then
+  pick="$RELEASE"
+elif [[ -x "$DEBUG" ]]; then
+  pick="$DEBUG"
+elif command -v ansible-herd >/dev/null 2>&1; then
+  pick="$(command -v ansible-herd)"
+fi
+
+if [[ -z "$pick" ]]; then
+  printf 'herd: no ansible-herd binary found.\n' >&2
+  printf '      build it with:  cargo build --release -p ansible-herd\n' >&2
+  printf '      looked in:      %s\n                      %s\n' "$RELEASE" "$DEBUG" >&2
+  exit 127
+fi
+
+exec "$pick" "$@"
