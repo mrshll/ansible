@@ -178,6 +178,7 @@ from this repo's convention — so every parser probes field names and degrades,
 scripts/demo-herd.sh                           # the whole idea, no Herdr needed
 cargo test -p ansible-herd                     # 111 tests, incl. real-git round trips
 herdr plugin link plugins/herdr-presence       # with Herdr installed
+scripts/probe-herdr.sh                         # validate every assumption, emit telemetry
 scripts/capture-herdr-fixtures.sh              # record the real socket shapes
 ```
 

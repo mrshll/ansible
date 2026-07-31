@@ -251,18 +251,87 @@ So the code is written to fail gracefully rather than to be right by luck:
 `terminal session observe` from a real server, and says which files to compare. The
 first person with Herdr installed should run it, and the diff is the review.
 
-**Known-unverified, in the order they would hurt:**
+**How the guesswork gets closed:**
 
-1. Whether `events.subscribe` accepts a subscription with no `pane_id` filter. If
-   not, the daemon polls — designed for, not fatal.
-2. The `terminal.frame` payload field name. If none of the five probes match,
-   teleport publishes nothing and the fix is one line.
-3. `session.snapshot`'s field names for workspace/tab/agent records. Wrong names
-   cost labels, not rows.
-4. `min_herdr_version = "0.7.5"`. Herdr refuses to link a plugin that claims a
-   version newer than the binary, so this is a hard gate on an unverified guess.
-5. Whether a `[[startup]]` hook's detached grandchild survives. If Herdr kills the
-   process group, the daemon needs a different launch (a pane, or an OS service).
+```bash
+npm install && npm run --workspace @ansible/herd build   # so captures get scrubbed
+scripts/probe-herdr.sh                                   # on a machine with Herdr
+```
+
+`scripts/probe-herdr.sh` turns every assumption into a numbered check and emits a
+telemetry bundle: `report.md` for a human, `assumptions.jsonl` for a diff, and
+`raw/` with the responses that should replace the doc-derived test fixtures. It is
+safe against a working session — every write is one display-only token, one toast,
+and one Agents-view sort, each undone — and it never sends input to an agent
+without asking. Frame payloads are decoded and redacted rather than stored as
+base64, because a text scrubber cannot see inside base64 and the whole point is a
+bundle that is safe to hand over.
+
+The two files worth reading first are `raw/field-audit.txt` — every field name the
+parsers reach for, and which one was actually there — and `raw/frame-audit.txt`,
+which says which field carries terminal bytes in an observe frame.
+
+**Known-unverified, in the order they would hurt.** The check id in brackets is
+where the probe reports on it.
+
+1. **Whether `events.subscribe` accepts a subscription with no `pane_id` filter**
+   [D1]. If not, the daemon polls — designed for, not fatal, but a second of
+   latency on the status that matters most. The probe also tries the scoped form
+   [D2], which is the fallback shape.
+2. **The `terminal.frame` payload field name** [I2]. The code probes five
+   plausible names; if none match, teleport publishes nothing and the fix is one
+   line.
+3. **`session.snapshot`'s field names** [B2]. Wrong names cost labels, not rows —
+   the audit distinguishes a genuinely missing required field from an optional
+   override that simply was not set.
+4. **`min_herdr_version = "0.7.5"`** [K1]. Herdr refuses to link a plugin claiming
+   a version newer than the binary, so this is a hard gate on a guess.
+5. **Whether a `[[startup]]` hook's detached grandchild survives** [K5]. This one
+   decides whether the daemon design works at all. If Herdr kills the process
+   group, the daemon needs a different launch — a visible pane, or an OS service.
+
+**What the probe cannot answer, and the commands for them.** These need eyes, a
+restart, or credentials.
+
+1. **Do reported tokens actually render in the Agents sidebar?** [E3] The docs say
+   tokens "can be rendered as `$name` in Agent sidebar rows", which reads like the
+   row template has to opt in. If they do not appear, the answer is a config
+   change and the probe wants to know what it was.
+   ```bash
+   herdr pane report-metadata <pane> --source probe --token herd="2 watching"
+   # then look at the sidebar row for <pane>
+   ```
+2. **Does a startup hook leave a daemon running?** [K5]
+   ```bash
+   herdr plugin link plugins/herdr-presence
+   herdr kill && herdr            # restart the server so startup hooks fire
+   pgrep -laf 'ansible-herd daemon' || echo 'no daemon survived'
+   ```
+3. **Does the popup pane size the way the manifest asks?**
+   ```bash
+   herdr plugin pane open --plugin ansible.herd-rs --entrypoint ask
+   # expect a session-modal popup, 60% wide and 8 rows tall
+   ```
+4. **Does `plugin install` work from a GitHub subdirectory, with our build
+   commands?** This is the path a teammate would actually use.
+   ```bash
+   herdr plugin install mrshll/ansible/plugins/herd --ref claude/herdr-plugin-presence-8r0ggq
+   ```
+5. **Does the ported SpacetimeDB module publish, and are its names snake_case?**
+   [L1, L2] Use a scratch database, not the real one.
+   ```bash
+   spacetime publish --project-path services/hub herd-probe-scratch
+   spacetime sql herd-probe-scratch "SELECT * FROM session_status_history LIMIT 1"
+   spacetime sql herd-probe-scratch "SELECT session_id, shared_with_org FROM session LIMIT 1"
+   ```
+   If those two queries resolve under those names, the port is wire-compatible with
+   the Rust module and the migration is a republish. If they do not, `CASE_CONVERSION_POLICY`
+   is not doing what ADR 0005 claims and the RLS strings need rewriting.
+6. **Is RLS still enforced after the port?** The existing probe already asserts
+   this; point it at the scratch database.
+   ```bash
+   scripts/probe-rls.sh          # 6 assertions, from an identity that owns nothing
+   ```
 
 ## What to build next, in order
 

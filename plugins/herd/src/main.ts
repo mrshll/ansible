@@ -19,7 +19,7 @@ import { join } from "node:path";
 import type { Card, World } from "./model.js";
 import { normalize, statusFromHerdr } from "./model.js";
 import { PLUGIN_ID, ensurePaths, loadConfig, resolvePaths, writeConfigIfAbsent } from "./paths.js";
-import { redact } from "./redact.js";
+import { Redactor, redact } from "./redact.js";
 import { render, rows } from "./roster.js";
 
 const USAGE = `\
@@ -29,6 +29,7 @@ ansible-herd — team presence for coding agents, hosted by Herdr
   doctor                   explain what is and is not working
   roster                   show the herd
   demo [login]             write a synthetic teammate into the local world
+  redact                   filter stdin through the redactor, for scrubbing captures
 
 Not yet ported from crates/ansible-herd: daemon, watch, comment, inbox, ask.
 See docs/adr/0005-typescript-and-the-herdr-host.md.
@@ -55,6 +56,8 @@ function main(argv: string[]): number {
       return roster(paths);
     case "demo":
       return demo(paths, rest[0] ?? "robin");
+    case "redact":
+      return redactStdin();
     case "help":
     case "--help":
     case "-h":
@@ -216,6 +219,32 @@ function demo(paths: ReturnType<typeof resolvePaths>, login: string): number {
   writeFileSync(file, `${JSON.stringify(world, null, 2)}\n`);
   console.log(`wrote ${world.cards.length} synthetic session(s) to ${file}`);
   console.log("run `ansible-herd roster` to see them");
+  return 0;
+}
+
+/**
+ * Scrub a capture on its way past.
+ *
+ * `scripts/probe-herdr.sh` pipes real terminal output through this before writing
+ * it to a telemetry directory, which does two jobs at once: it makes the capture
+ * safe to hand to somebody else, and it runs the redactor over real session bytes
+ * instead of test fixtures. If a secret ever shows up in a probe capture, that is
+ * the most valuable bug report this repo could receive.
+ *
+ * Byte-exact for input containing no secrets, and streaming, so a long capture does
+ * not have to fit in memory.
+ */
+function redactStdin(): number {
+  const redactor = new Redactor();
+  process.stdin.on("data", (chunk: Buffer) => {
+    process.stdout.write(redactor.push(new Uint8Array(chunk)));
+  });
+  process.stdin.on("end", () => {
+    process.stdout.write(redactor.finish());
+    if (redactor.hits > 0) {
+      process.stderr.write(`redacted ${redactor.hits} secret(s)\n`);
+    }
+  });
   return 0;
 }
 
