@@ -22,6 +22,7 @@
 
 import { DurableObject } from "cloudflare:workers";
 
+import { advanceTranscriptCursor } from "./hub";
 import {
   type Chunk,
   type CursorMessage,
@@ -29,12 +30,10 @@ import {
   type HelloMessage,
   ProtocolError,
   type StallMessage,
-  chunkByteLength,
   chunkKey,
   manifestKey,
   parseChunkJsonl,
 } from "./protocol";
-import { advanceTranscriptCursor } from "./hub";
 import type { Env } from "./types";
 
 /** Ordering state, mirrored in SQLite so it survives eviction. */
@@ -159,7 +158,7 @@ export class SessionRelay extends DurableObject<Env> {
    * question #9), so an inbound message is a protocol error rather than something
    * to interpret.
    */
-  async webSocketMessage(ws: WebSocket, _message: string | ArrayBuffer): Promise<void> {
+  override async webSocketMessage(ws: WebSocket, _message: string | ArrayBuffer): Promise<void> {
     ws.close(1003, "viewers are read-only");
   }
 

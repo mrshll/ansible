@@ -15,8 +15,8 @@
  * that cannot be decided by whichever isolate happened to receive the request.
  */
 
-import { SessionRelay } from "./relay";
 import { chunkKey, manifestKey, type FrameMessage } from "./protocol";
+import { SessionRelay } from "./relay";
 import type { Env } from "./types";
 
 export { SessionRelay };

@@ -7,7 +7,7 @@
   // WebSocket, so no nodejs_compat is needed.
 
   "durable_objects": {
-    "bindings": [{ "name": "SESSION_RELAY", "class_name": "SessionRelay" }]
+    "bindings": [{ "name": "SESSION_RELAY", "class_name": "SessionRelay" }],
   },
 
   // SQLite-backed, because the relay's ordering state must survive eviction.
@@ -19,8 +19,8 @@
       // Local `wrangler dev` simulates this on disk and never contacts
       // Cloudflare. Deploying would create a real bucket, which is a separate,
       // explicitly-approved step — see README.md.
-      "bucket_name": "ansible-transcripts-spike"
-    }
+      "bucket_name": "ansible-transcripts-spike",
+    },
   ],
 
   "vars": {
@@ -31,8 +31,8 @@
     "VIEW_TOKEN": "spike-view-token",
     "HUB_URL": "https://maincloud.spacetimedb.com",
     "HUB_DB": "ansible-spike-b",
-    "HUB_TOKEN": ""
+    "HUB_TOKEN": "",
   },
 
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
 }

@@ -1,0 +1,15 @@
+{
+  "name": "@ansible/hub",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The SpacetimeDB module: schema, reducers, and row-level security for the multiplayer presence layer",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "publish:local": "spacetime publish --project-path . ansible-hub",
+    "typecheck": "tsc --build"
+  },
+  "dependencies": {
+    "spacetimedb": "^2.7.1"
+  }
+}

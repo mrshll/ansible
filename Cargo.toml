@@ -1,12 +1,12 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/ansible-capture",
-    "crates/ansible-herd",
-    "crates/ansible-hooks",
-    "crates/ansible-terminal",
-    "crates/ansible-transport",
-    "apps/desktop/src-tauri",
+  "crates/ansible-capture",
+  "crates/ansible-herd",
+  "crates/ansible-hooks",
+  "crates/ansible-terminal",
+  "crates/ansible-transport",
+  "apps/desktop/src-tauri",
 ]
 
 # The SpacetimeDB module is a wasm32-unknown-unknown cdylib built by

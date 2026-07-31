@@ -57,6 +57,10 @@ scripts/demo-herd.sh      # presence, teleport, and a comment, in one terminal
   what Herdr replaces, what it costs, the teleport handshake, and the consent ladder.
 - [ADR 0004 — Herdr as the host](docs/adr/0004-herdr-plugin-host.md) — Herdr owns
   the panes and the status; this project owns the team.
+- [ADR 0005 — TypeScript for everything we write](docs/adr/0005-typescript-and-the-herdr-host.md)
+  — **in progress.** The plugin and the SpacetimeDB module in TypeScript 7 with
+  oxlint and oxfmt; the deployed infrastructure and its architecture are what get
+  reused, not the Rust.
 
 ### Spike A in one paragraph
 
@@ -178,6 +182,22 @@ scripts/capture-herdr-fixtures.sh              # record the real socket shapes
 ```
 
 ## Development
+
+Two toolchains, one bar. `scripts/lint.sh` is the definition of a clean tree and it
+calls `scripts/check-ts.sh` for the TypeScript half, so there is no way for the two
+to disagree or for CI to differ from a local run.
+
+```bash
+npm install                # TypeScript 7, oxlint, oxfmt, vitest
+scripts/check-ts.sh        # oxfmt --check, oxlint, tsc per package, vitest
+scripts/check-ts.sh --fix  # apply what can be applied
+```
+
+Three TypeScript packages, three runtimes, and therefore three module-resolution
+modes — which is why `tsc` runs per package rather than once over a solution:
+`services/hub` is bundled to wasm by `spacetime publish`,
+`services/transcript-worker` is bundled by wrangler, and `plugins/herd` is run by
+Node as argv commands.
 
 One-time setup per clone, which points git at the versioned hooks in
 `.githooks/`:

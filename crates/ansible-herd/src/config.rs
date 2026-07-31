@@ -22,13 +22,13 @@ use crate::model::Share;
 /// Herdr requires plugin-owned Agents views to be sourced as
 /// `plugin:<HERDR_PLUGIN_ID>` and rejects the set when the id does not match an
 /// enabled plugin, so this constant and the manifest must agree.
-pub const PLUGIN_ID: &str = "ansible.herd";
+pub const PLUGIN_ID: &str = "ansible.herd-rs";
 
 /// Source identifier used for every metadata report this plugin makes.
 ///
 /// Herdr scopes presentation expiry and sequence numbers per source, so a single
 /// stable string means our tokens can never be confused with a user hook's.
-pub const METADATA_SOURCE: &str = "plugin:ansible.herd";
+pub const METADATA_SOURCE: &str = "plugin:ansible.herd-rs";
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]

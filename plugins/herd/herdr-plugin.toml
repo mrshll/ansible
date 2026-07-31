@@ -1,0 +1,55 @@
+# ansible-herd (TypeScript) — team presence for coding agents.
+#
+# The Rust prototype lives at plugins/herdr-presence with the id
+# `ansible.herd-rs`. The ids differ so both can be linked at once and compared —
+# but do not run both daemons against the same hub as the same login, because they
+# would take turns overwriting each other's presence.
+#
+#   npm install && npm run --workspace @ansible/herd build
+#   herdr plugin link plugins/herd
+#
+# Only the entrypoints below are implemented. The daemon, teleport, comments, and
+# the ask popup are still the Rust plugin's job — see
+# docs/adr/0005-typescript-and-the-herdr-host.md for what is where and why.
+
+id = "ansible.herd"
+name = "Herd"
+version = "0.2.0"
+
+# `pane.report_metadata` tokens, `agent.view.set`, `plugin.pane.open` with a
+# `popup` placement, and `terminal session observe` are all documented against
+# 0.7.5. Herdr refuses to link a plugin claiming a version newer than the running
+# binary, so lowering this is a change to make only after checking.
+min_herdr_version = "0.7.5"
+description = "See the herd, raise a hand, and teleport into a teammate's agent session"
+
+# Node runs the plugin, so this is not a platform limit of its own — but the
+# socket client it will grow needs a named-pipe transport before Windows works.
+platforms = ["linux", "macos"]
+
+[[build]]
+command = ["npm", "install"]
+
+[[build]]
+command = ["npm", "run", "--workspace", "@ansible/herd", "build"]
+
+# The herd. Overlay, so it opens over whatever you were doing and restores the
+# previous focus and zoom when it closes.
+[[panes]]
+id = "roster"
+title = "Herd"
+placement = "overlay"
+command = ["./herd", "roster"]
+
+# Opening a pane needs an action, because Herdr's keybindings bind to actions.
+[[actions]]
+id = "roster"
+title = "Show the herd"
+contexts = ["workspace"]
+command = ["./herd", "roster"]
+
+[[actions]]
+id = "doctor"
+title = "Herd: explain what is working"
+contexts = ["workspace"]
+command = ["./herd", "doctor"]

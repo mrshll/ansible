@@ -7,10 +7,14 @@
 # for why this repo took this shape.
 #
 #   herdr plugin link plugins/herdr-presence
-#   herdr plugin action list --plugin ansible.herd
+#   herdr plugin action list --plugin ansible.herd-rs
+#
+# Superseded by plugins/herd (TypeScript, id `ansible.herd`), which is where new
+# work goes. The ids differ so both can be linked at once — but do not run both
+# daemons against the same hub as the same login.
 
-id = "ansible.herd"
-name = "Herd"
+id = "ansible.herd-rs"
+name = "Herd (Rust prototype)"
 version = "0.1.0"
 
 # The features this plugin uses — `pane.report_metadata` tokens, `agent.view.set`,
